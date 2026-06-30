@@ -6,9 +6,12 @@ DataT = TypeVar("DataT")
 
 
 class ErrorBody(BaseModel):
-    code: str
+    error_code: str
     message: str
-    details: dict[str, object] | None = None
+    detail: dict[str, object] | None = None
+    recoverable: bool
+    suggested_action: str | None = None
+    request_id: str | None = None
 
 
 class ApiResponse(BaseModel, Generic[DataT]):

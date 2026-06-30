@@ -13,6 +13,8 @@ run.bat
 `data/`, and applies Alembic migrations. `run.bat` also applies pending
 migrations before starting FastAPI.
 
+`setup.bat` requires Python 3.12 or newer. It accepts Python 3.13+ as well.
+
 Manual migration command:
 
 ```bat
@@ -24,6 +26,9 @@ Development initialization without schema migration:
 ```bat
 python -m app.db.init_db
 ```
+
+Repository classes do not commit or rollback transactions. Services use
+`UnitOfWork` or an explicit service-level transaction boundary.
 
 Default URL:
 

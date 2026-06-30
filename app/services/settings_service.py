@@ -3,11 +3,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.db.unit_of_work import UnitOfWork
 from app.repositories.settings_repository import SettingsRepository
 
 
 class SettingsService:
     def __init__(self, db: Session) -> None:
+        self.db = db
         self.repository = SettingsRepository(db)
 
     def get(self, key: str) -> Any | None:
@@ -23,9 +25,10 @@ class SettingsService:
         editable: bool = True,
         description: str | None = None,
     ) -> None:
-        self.repository.upsert(
-            key=key,
-            value_json=json.dumps(value, ensure_ascii=True),
-            editable=editable,
-            description=description,
-        )
+        with UnitOfWork(self.db):
+            self.repository.upsert(
+                key=key,
+                value_json=json.dumps(value, ensure_ascii=True),
+                editable=editable,
+                description=description,
+            )

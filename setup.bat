@@ -3,18 +3,28 @@ setlocal
 
 cd /d "%~dp0"
 
+set "PYTHON_CMD="
 where py >nul 2>nul
 if %errorlevel%==0 (
-    set "PYTHON_CMD=py -3.12"
-) else (
-    set "PYTHON_CMD=python"
+    py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" >nul 2>nul
+    if not errorlevel 1 set "PYTHON_CMD=py -3"
 )
 
-%PYTHON_CMD% --version >nul 2>nul
-if errorlevel 1 (
+if "%PYTHON_CMD%"=="" (
+    where python >nul 2>nul
+    if not errorlevel 1 (
+        python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" >nul 2>nul
+        if not errorlevel 1 set "PYTHON_CMD=python"
+    )
+)
+
+if "%PYTHON_CMD%"=="" (
     echo Python 3.12 or newer was not found.
+    echo Install Python 3.12+ or ensure it is available through py or python.
     exit /b 1
 )
+
+%PYTHON_CMD% --version
 
 %PYTHON_CMD% -m venv .venv
 if errorlevel 1 exit /b 1

@@ -13,7 +13,8 @@ run.bat
 `data/`, and applies Alembic migrations. `run.bat` also applies pending
 migrations before starting FastAPI.
 
-`setup.bat` requires Python 3.12 or newer. It accepts Python 3.13+ as well.
+`setup.bat` requires Python 3.12 or 3.13. Newer Python versions may not have
+compatible CUDA PyTorch wheels yet, so the setup script avoids them.
 By default it installs CUDA-enabled PyTorch from:
 
 ```text

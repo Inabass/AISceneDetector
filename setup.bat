@@ -1,26 +1,34 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 
 cd /d "%~dp0"
 
 set "PYTHON_CMD="
 where py >nul 2>nul
 if %errorlevel%==0 (
-    py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" >nul 2>nul
-    if not errorlevel 1 set "PYTHON_CMD=py -3"
+    py -3.12 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" >nul 2>nul
+    if not errorlevel 1 set "PYTHON_CMD=py -3.12"
+    if "!PYTHON_CMD!"=="" (
+        py -3.13 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" >nul 2>nul
+        if not errorlevel 1 set "PYTHON_CMD=py -3.13"
+    )
+    if "!PYTHON_CMD!"=="" (
+        py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) and sys.version_info < (3, 14) else 1)" >nul 2>nul
+        if not errorlevel 1 set "PYTHON_CMD=py -3"
+    )
 )
 
 if "%PYTHON_CMD%"=="" (
     where python >nul 2>nul
     if not errorlevel 1 (
-        python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" >nul 2>nul
+        python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) and sys.version_info < (3, 14) else 1)" >nul 2>nul
         if not errorlevel 1 set "PYTHON_CMD=python"
     )
 )
 
 if "%PYTHON_CMD%"=="" (
-    echo Python 3.12 or newer was not found.
-    echo Install Python 3.12+ or ensure it is available through py or python.
+    echo Python 3.12 or 3.13 was not found.
+    echo Install Python 3.12/3.13 or ensure it is available through py or python.
     exit /b 1
 )
 
@@ -36,9 +44,9 @@ python -m pip install --upgrade pip
 if errorlevel 1 exit /b 1
 
 if "%AISD_SKIP_TORCH_INSTALL%"=="" (
-    set "AISD_PYTORCH_INDEX_URL=%AISD_PYTORCH_INDEX_URL%"
-    if "%AISD_PYTORCH_INDEX_URL%"=="" set "AISD_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128"
-    python -m pip install torch torchvision --index-url %AISD_PYTORCH_INDEX_URL%
+    if "!AISD_PYTORCH_INDEX_URL!"=="" set "AISD_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128"
+    echo Installing CUDA PyTorch from !AISD_PYTORCH_INDEX_URL!
+    python -m pip install torch torchvision --index-url "!AISD_PYTORCH_INDEX_URL!"
     if errorlevel 1 exit /b 1
 )
 

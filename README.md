@@ -15,6 +15,23 @@ migrations before starting FastAPI.
 
 `setup.bat` requires Python 3.12 or newer. It accepts Python 3.13+ as well.
 
+
+## CUDA-enabled PyTorch
+
+`setup.bat` installs PyTorch separately before the rest of the Python dependencies:
+
+```bat
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+```
+
+This keeps the Windows/RTX 5090 path on CUDA-enabled wheels instead of accidentally installing a CPU-only build. If PyTorch changes the recommended CUDA wheel index, use the command from the official PyTorch installer page and then rerun `setup.bat`.
+
+After setup, verify CUDA from the venv:
+
+```bat
+.venv\Scripts\python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+```
+
 Manual migration command:
 
 ```bat

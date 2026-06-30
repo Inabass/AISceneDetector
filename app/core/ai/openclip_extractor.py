@@ -60,6 +60,10 @@ class OpenCLIPFeatureExtractor(FeatureExtractor):
             extractor_metadata=self.metadata(),
         )
 
+    def clear_memory_after_oom(self) -> None:
+        if self.torch.cuda.is_available():
+            self.torch.cuda.empty_cache()
+
     def metadata(self) -> dict[str, Any]:
         return {
             "extractor": "openclip",
@@ -68,3 +72,8 @@ class OpenCLIPFeatureExtractor(FeatureExtractor):
             "feature_dtype": self.settings.openclip_feature_dtype,
             "device": "cuda",
         }
+
+
+def is_cuda_oom(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "cuda" in message and "out of memory" in message

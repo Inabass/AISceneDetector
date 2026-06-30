@@ -35,6 +35,13 @@ if errorlevel 1 exit /b 1
 python -m pip install --upgrade pip
 if errorlevel 1 exit /b 1
 
+if "%AISD_SKIP_TORCH_INSTALL%"=="" (
+    set "AISD_PYTORCH_INDEX_URL=%AISD_PYTORCH_INDEX_URL%"
+    if "%AISD_PYTORCH_INDEX_URL%"=="" set "AISD_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128"
+    python -m pip install torch torchvision --index-url %AISD_PYTORCH_INDEX_URL%
+    if errorlevel 1 exit /b 1
+)
+
 python -m pip install -r requirements.txt
 if errorlevel 1 exit /b 1
 

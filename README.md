@@ -14,6 +14,25 @@ run.bat
 migrations before starting FastAPI.
 
 `setup.bat` requires Python 3.12 or newer. It accepts Python 3.13+ as well.
+By default it installs CUDA-enabled PyTorch from:
+
+```text
+https://download.pytorch.org/whl/cu128
+```
+
+Override this when needed:
+
+```bat
+set AISD_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
+setup.bat
+```
+
+Skip PyTorch installation only for non-GPU diagnostics:
+
+```bat
+set AISD_SKIP_TORCH_INSTALL=1
+setup.bat
+```
 
 Manual migration command:
 
@@ -54,4 +73,23 @@ Check ffmpeg and ffprobe:
 
 ```text
 http://127.0.0.1:8000/api/v1/system/video-tools
+```
+
+GPU status:
+
+```text
+http://127.0.0.1:8000/api/v1/gpu
+```
+
+Start training feature extraction:
+
+```bat
+curl -X POST http://127.0.0.1:8000/api/v1/training/videos/1/features -H "Content-Type: application/json" -d "{\"frame_interval_sec\":1.0}"
+```
+
+Check or cancel a job:
+
+```text
+http://127.0.0.1:8000/api/v1/jobs/1
+http://127.0.0.1:8000/api/v1/jobs/1/cancel
 ```

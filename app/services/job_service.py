@@ -41,6 +41,31 @@ class JobService:
             job.progress = max(0, min(progress, 100))
             job.current_step = step
 
+    def update_checkpoint(self, job_id: int, checkpoint: dict[str, Any]) -> None:
+        job = self._require_job(job_id)
+        with UnitOfWork(self.db):
+            job.checkpoint_json = json.dumps(checkpoint, ensure_ascii=True)
+
+    def request_cancel(self, job_id: int) -> None:
+        job = self._require_job(job_id)
+        with UnitOfWork(self.db):
+            if job.status in {"queued", "running", "retrying"}:
+                job.status = "cancel_requested"
+                job.current_step = "cancel_requested"
+
+    def is_cancel_requested(self, job_id: int) -> bool:
+        self.db.expire_all()
+        job = self._require_job(job_id)
+        return job.status == "cancel_requested"
+
+    def cancel(self, job_id: int, checkpoint: dict[str, Any] | None = None) -> None:
+        job = self._require_job(job_id)
+        with UnitOfWork(self.db):
+            job.status = "cancelled"
+            job.current_step = "cancelled"
+            job.checkpoint_json = json.dumps(checkpoint or {}, ensure_ascii=True)
+            job.finished_at = datetime.now(timezone.utc)
+
     def succeed(self, job_id: int, checkpoint: dict[str, Any] | None = None) -> None:
         job = self._require_job(job_id)
         with UnitOfWork(self.db):

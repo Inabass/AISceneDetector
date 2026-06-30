@@ -11,6 +11,12 @@ if not exist .venv\Scripts\activate.bat (
 call .venv\Scripts\activate.bat
 if errorlevel 1 exit /b 1
 
+python -m app.db.migrate
+if errorlevel 1 (
+    echo Database migration failed. Run setup.bat or check data\logs\app.log.
+    exit /b 1
+)
+
 set "AISD_HOST=%AISD_HOST%"
 if "%AISD_HOST%"=="" set "AISD_HOST=127.0.0.1"
 

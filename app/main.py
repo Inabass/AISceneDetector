@@ -10,14 +10,14 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.core.config import get_settings
-from app.db.init_db import init_database
+from app.db.init_db import init_development_environment
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_database()
+    init_development_environment()
     logger.info("Application started")
     yield
     logger.info("Application stopped")

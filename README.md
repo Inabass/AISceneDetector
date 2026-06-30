@@ -9,6 +9,22 @@ setup.bat
 run.bat
 ```
 
+`setup.bat` creates the virtual environment, installs dependencies, prepares
+`data/`, and applies Alembic migrations. `run.bat` also applies pending
+migrations before starting FastAPI.
+
+Manual migration command:
+
+```bat
+python -m app.db.migrate
+```
+
+Development initialization without schema migration:
+
+```bat
+python -m app.db.init_db
+```
+
 Default URL:
 
 ```text

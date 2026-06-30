@@ -42,5 +42,8 @@ if not exist data\temp mkdir data\temp
 python -m app.db.init_db
 if errorlevel 1 exit /b 1
 
+python -m app.db.migrate
+if errorlevel 1 exit /b 1
+
 echo Setup completed.
 endlocal

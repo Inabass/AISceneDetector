@@ -41,3 +41,9 @@ Health API:
 ```text
 http://127.0.0.1:8000/api/v1/health
 ```
+
+Upload a training video:
+
+```bat
+curl -F label_type=positive -F file=@sample.mp4 http://127.0.0.1:8000/api/v1/training/videos
+```

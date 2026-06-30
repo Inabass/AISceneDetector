@@ -18,6 +18,14 @@ class Settings(BaseSettings):
 
     ffmpeg_path: str | None = None
     ffprobe_path: str | None = None
+    max_upload_size_bytes: int = 50 * 1024 * 1024 * 1024
+    allowed_video_extensions: tuple[str, ...] = (
+        ".mp4",
+        ".mov",
+        ".mkv",
+        ".avi",
+        ".webm",
+    )
 
     cuda_enabled: bool = True
     cpu_diagnostic_enabled: bool = False

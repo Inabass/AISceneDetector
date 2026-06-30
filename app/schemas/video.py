@@ -24,7 +24,10 @@ class TrainingVideoData(BaseModel):
     stream_count: int | None
     has_audio: bool | None
     validation_status: str
+    processing_status: str
     validation_error: str | None
+    duplicated: bool = False
+    duplicate_of_video_id: int | None = None
 
 
 class TrainingVideoResponse(ApiResponse[TrainingVideoData]):

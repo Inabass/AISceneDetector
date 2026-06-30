@@ -47,3 +47,11 @@ Upload a training video:
 ```bat
 curl -F label_type=positive -F file=@sample.mp4 http://127.0.0.1:8000/api/v1/training/videos
 ```
+
+Duplicate uploads return the existing video metadata with `duplicated: true`.
+
+Check ffmpeg and ffprobe:
+
+```text
+http://127.0.0.1:8000/api/v1/system/video-tools
+```

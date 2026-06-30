@@ -65,5 +65,12 @@ def to_training_video_data(video: TrainingVideo) -> TrainingVideoData:
         stream_count=video.stream_count,
         has_audio=video.has_audio,
         validation_status=video.validation_status,
+        processing_status=video.processing_status,
         validation_error=video.validation_error,
+        duplicated=bool(getattr(video, "_duplicated_response", False)),
+        duplicate_of_video_id=getattr(
+            video,
+            "_duplicate_source_video_id",
+            video.duplicate_of_video_id,
+        ),
     )

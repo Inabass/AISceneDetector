@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     default_training_batch_size: int = 64
     default_detection_batch_size: int = 64
     auto_batch_reduction: bool = True
+    default_frame_interval_sec: float = 1.0
+    openclip_model_name: str = "ViT-B-32"
+    openclip_pretrained: str = "laion2b_s34b_b79k"
+    openclip_feature_dtype: str = "float16"
 
     request_log_enabled: bool = True
 

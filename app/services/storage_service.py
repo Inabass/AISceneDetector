@@ -51,6 +51,19 @@ class StorageService:
         unique_name = f"{uuid.uuid4().hex}_{safe_name}"
         return self.ensure_under_root(self.settings.upload_dir / unique_name)
 
+    def relative_path(self, path: Path) -> str:
+        resolved = self.ensure_under_root(path)
+        return resolved.relative_to(self.settings.storage_root.resolve()).as_posix()
+
+    def resolve_storage_path(self, relative_path: str) -> Path:
+        if Path(relative_path).is_absolute():
+            raise ValidationAppError(
+                message="Storage path must be relative.",
+                detail={"path": relative_path},
+                suggested_action="Use a storage-root relative path.",
+            )
+        return self.ensure_under_root(self.settings.storage_root / relative_path)
+
     def ensure_under_root(self, path: Path) -> Path:
         root = self.settings.storage_root.resolve()
         resolved = path.resolve()

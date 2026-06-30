@@ -31,4 +31,10 @@ class TrainingVideo(Base, TimestampMixin):
     metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     opencv_metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     validation_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    processing_status: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="READY",
+    )
     validation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duplicate_of_video_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

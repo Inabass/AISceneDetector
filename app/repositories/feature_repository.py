@@ -23,12 +23,3 @@ class FeatureRepository(Repository[Feature]):
             .order_by(Feature.created_at.desc())
             .limit(1)
         ).scalar_one_or_none()
-
-    def list_by_cache_key(self, cache_key: str) -> list[Feature]:
-        return list(
-            self.db.execute(
-                select(Feature)
-                .where(Feature.cache_key == cache_key)
-                .order_by(Feature.created_at.asc())
-            ).scalars()
-        )

@@ -21,6 +21,7 @@ from app.core.exception_handlers import (
     validation_error_handler,
 )
 from app.db.init_db import init_development_environment
+from app.workers import JobWorker
 
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
@@ -30,9 +31,14 @@ WEB_DIR = BASE_DIR / "web"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_development_environment()
+    worker = JobWorker()
+    worker.start()
     logger.info("Application started")
-    yield
-    logger.info("Application stopped")
+    try:
+        yield
+    finally:
+        worker.stop()
+        logger.info("Application stopped")
 
 
 app = FastAPI(

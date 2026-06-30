@@ -35,6 +35,14 @@ if errorlevel 1 exit /b 1
 python -m pip install --upgrade pip
 if errorlevel 1 exit /b 1
 
+echo Installing CUDA-enabled PyTorch wheels for NVIDIA GPUs...
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+if errorlevel 1 (
+    echo Failed to install CUDA-enabled PyTorch wheels.
+    echo Check Python version support and NVIDIA driver, then see https://pytorch.org/get-started/locally/
+    exit /b 1
+)
+
 python -m pip install -r requirements.txt
 if errorlevel 1 exit /b 1
 

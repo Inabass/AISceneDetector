@@ -26,3 +26,31 @@ class JobRepository(Repository[Job]):
                 select(Job).order_by(Job.created_at.desc()).limit(limit)
             ).scalars()
         )
+
+    def get_next_queued(self, job_types: set[str]) -> Job | None:
+        return self.db.execute(
+            select(Job)
+            .where(Job.status == "queued", Job.type.in_(job_types))
+            .order_by(Job.created_at.asc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+    def list_by_status(self, statuses: set[str], limit: int = 100) -> list[Job]:
+        return list(
+            self.db.execute(
+                select(Job)
+                .where(Job.status.in_(statuses))
+                .order_by(Job.created_at.asc())
+                .limit(limit)
+            ).scalars()
+        )
+
+    def list_logs(self, job_id: int, limit: int = 200) -> list[JobLog]:
+        return list(
+            self.db.execute(
+                select(JobLog)
+                .where(JobLog.job_id == job_id)
+                .order_by(JobLog.created_at.asc())
+                .limit(limit)
+            ).scalars()
+        )

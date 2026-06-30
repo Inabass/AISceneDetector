@@ -20,3 +20,20 @@ class JobResponse(ApiResponse[JobData]):
 class FeatureJobRequest(BaseModel):
     frame_interval_sec: float | None = None
     batch_size: int | None = None
+
+class JobListResponse(ApiResponse[list[JobData]]):
+    pass
+
+
+class JobLogData(BaseModel):
+    id: int
+    job_id: int
+    level: str
+    step: str | None
+    message: str
+    details_json: str | None
+    created_at: str
+
+
+class JobLogListResponse(ApiResponse[list[JobLogData]]):
+    pass

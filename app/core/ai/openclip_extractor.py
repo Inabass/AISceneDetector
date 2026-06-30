@@ -1,5 +1,7 @@
 from typing import Any
 
+_MODEL_CACHE: dict[tuple[str, str, str], tuple[Any, Any]] = {}
+
 from app.core.ai.feature_extractor import ExtractedFeatures, FeatureExtractor
 from app.core.config import Settings
 from app.core.errors import ValidationAppError
@@ -27,11 +29,20 @@ class OpenCLIPFeatureExtractor(FeatureExtractor):
 
         self.torch = torch
         self.device = torch.device("cuda")
-        self.model, _, self.preprocess = open_clip.create_model_and_transforms(
+        cache_key = (
             settings.openclip_model_name,
-            pretrained=settings.openclip_pretrained,
-            device=self.device,
+            settings.openclip_pretrained,
+            str(self.device),
         )
+        if cache_key in _MODEL_CACHE:
+            self.model, self.preprocess = _MODEL_CACHE[cache_key]
+        else:
+            self.model, _, self.preprocess = open_clip.create_model_and_transforms(
+                settings.openclip_model_name,
+                pretrained=settings.openclip_pretrained,
+                device=self.device,
+            )
+            _MODEL_CACHE[cache_key] = (self.model, self.preprocess)
         self.model.eval()
 
     def encode_frames(self, rgb_frames: list[Any]) -> ExtractedFeatures:
@@ -68,3 +79,16 @@ class OpenCLIPFeatureExtractor(FeatureExtractor):
             "feature_dtype": self.settings.openclip_feature_dtype,
             "device": "cuda",
         }
+
+    def is_out_of_memory_error(self, exc: RuntimeError) -> bool:
+        message = str(exc).lower()
+        return "out of memory" in message or "cuda error: out of memory" in message
+
+    def clear_memory_after_oom(self) -> None:
+        if self.torch.cuda.is_available():
+            self.torch.cuda.empty_cache()
+
+    def release(self) -> None:
+        # Models are cached for reuse across jobs; release only transient CUDA cache.
+        if self.torch.cuda.is_available():
+            self.torch.cuda.empty_cache()

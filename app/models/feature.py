@@ -22,8 +22,6 @@ class Feature(Base, TimestampMixin):
     cache_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     frame_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    file_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by_job_id: Mapped[int | None] = mapped_column(
         ForeignKey("jobs.id"),
         nullable=True,

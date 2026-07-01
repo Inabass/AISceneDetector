@@ -322,10 +322,14 @@ class ExportService:
                     "veryfast",
                     "-crf",
                     "20",
+                    "-pix_fmt",
+                    "yuv420p",
                     "-c:a",
                     "aac",
                     "-b:a",
                     "160k",
+                    "-movflags",
+                    "+faststart",
                 ]
             )
         command.append(str(output_path))
@@ -391,8 +395,10 @@ class ExportService:
             "veryfast",
             "-crf",
             "24",
+            "-pix_fmt",
+            "yuv420p",
             "-vf",
-            "scale=min(960\\,iw):-2",
+            "scale=trunc(min(960\\,iw)/2)*2:-2",
             "-movflags",
             "+faststart",
             str(output_path),

@@ -135,6 +135,43 @@ ffmpeg / ffprobe:
 http://127.0.0.1:8000/api/v1/system/video-tools
 ```
 
+## Windowsで確認済みの状態
+
+これまでにWindows環境で次の流れを確認済みです。
+
+- CUDA利用可能
+- GPU: NVIDIA GeForce RTX 5080
+- PyTorch: `2.11.0+cu128`
+- CUDA runtime: `12.8`
+- ffmpeg / ffprobe 検出成功
+- 学習動画アップロード成功
+- OpenCLIP特徴量抽出ジョブ成功
+- モデル作成と `v1` 生成成功
+- 対象動画の検出ジョブ成功
+- シーン区間生成成功
+- `copy` mode のExportジョブ成功
+- `data\outputs\exports\...` にmp4出力成功
+
+Preview/ThumbnailはExport機能に後から追加したため、既存Exportには自動では付きません。確認する場合は、最新コードでmigration適用後にExportを再実行してください。
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/exports" `
+  -ContentType "application/json" `
+  -Body '{"detection_id":3,"mode":"copy"}'
+```
+
+ジョブ完了後:
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/v1/exports"
+dir data\outputs\exports /s
+dir data\thumbnails /s
+dir data\previews /s
+```
+
+`thumbnail_url` と `preview_url` が返っていれば、ブラウザUIからも確認できます。
+
 ## Web UIでの使い方
 
 ブラウザで開きます。

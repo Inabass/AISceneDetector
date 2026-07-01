@@ -200,6 +200,30 @@
       </section>
 
       <section>
+        <h2>ストレージ</h2>
+        <div class="grid">
+          <label>cleanup対象
+            <select id="cleanupTarget">
+              <option value="temp,previews,thumbnails">temp + previews + thumbnails</option>
+              <option value="temp">temp</option>
+              <option value="previews">previews</option>
+              <option value="thumbnails">thumbnails</option>
+            </select>
+          </label>
+          <label>対象経過時間
+            <input id="cleanupOlderHours" type="number" min="0" step="1" value="24">
+          </label>
+        </div>
+        <div class="actions">
+          <button class="secondary" id="loadStorage">容量を確認</button>
+          <button class="secondary" id="estimateCleanup">cleanup見積もり</button>
+          <button class="secondary" id="runCleanup">cleanup実行</button>
+        </div>
+        <div class="result" id="storageResult">派生物と一時ファイルの容量を確認できます。</div>
+        <div class="list" id="storageList"></div>
+      </section>
+
+      <section>
         <h2>2. モデル</h2>
         <div class="grid">
           <label>モデル名
@@ -306,6 +330,14 @@
 
       function print(id, value) {
         $(id).textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+      }
+
+      function formatBytes(bytes) {
+        const value = Number(bytes || 0);
+        if (value < 1024) return `${value} B`;
+        if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+        if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+        return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
       }
 
       async function api(path, options = {}) {
@@ -429,6 +461,72 @@
           await loadJobLogs();
         } catch (error) {
           print("jobResult", error.message);
+        }
+      });
+
+      async function loadStorage() {
+        const usage = await api("/api/v1/system/storage");
+        print("storageResult", {
+          storage_root: usage.storage_root,
+          total: formatBytes(usage.total_bytes),
+        });
+        $("storageList").innerHTML = usage.areas.map((area) => `
+          <div class="item">
+            <h3>${escapeHtml(area.name)}</h3>
+            <div class="meta">
+              ${escapeHtml(area.path)}<br>
+              files=${area.file_count} / size=${formatBytes(area.total_bytes)}
+            </div>
+          </div>
+        `).join("");
+      }
+
+      function cleanupPayload(dryRun) {
+        return {
+          dry_run: dryRun,
+          targets: $("cleanupTarget").value.split(","),
+          older_than_hours: Number($("cleanupOlderHours").value),
+        };
+      }
+
+      async function cleanupStorage(dryRun) {
+        const result = await api("/api/v1/system/cleanup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(cleanupPayload(dryRun)),
+        });
+        print("storageResult", {
+          ...result,
+          deleted_bytes_human: formatBytes(result.deleted_bytes),
+          targets: result.targets.map((target) => ({
+            ...target,
+            total: formatBytes(target.total_bytes),
+          })),
+        });
+        await loadStorage();
+      }
+
+      $("loadStorage").addEventListener("click", async () => {
+        try {
+          await loadStorage();
+        } catch (error) {
+          print("storageResult", error.message);
+        }
+      });
+
+      $("estimateCleanup").addEventListener("click", async () => {
+        try {
+          await cleanupStorage(true);
+        } catch (error) {
+          print("storageResult", error.message);
+        }
+      });
+
+      $("runCleanup").addEventListener("click", async () => {
+        try {
+          await cleanupStorage(false);
+        } catch (error) {
+          print("storageResult", error.message);
         }
       });
 
@@ -738,6 +836,7 @@
 
       refreshSystemStatus();
       loadJobs().catch(() => {});
+      loadStorage().catch(() => {});
       loadDetections().catch(() => {});
       loadExports().catch(() => {});
       loadFeedback().catch(() => {});

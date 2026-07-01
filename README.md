@@ -489,6 +489,36 @@ curl.exe -X POST "http://127.0.0.1:8000/api/v1/jobs/1/cancel"
 
 Web UIでは、`ジョブ` セクションから直近ジョブ、詳細、ログを確認できます。`failed` / `cancelled` のジョブには `再試行` ボタンが表示されます。
 
+## ストレージ確認とcleanup
+
+容量確認:
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/v1/system/storage"
+```
+
+cleanup見積もり:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/system/cleanup" `
+  -ContentType "application/json" `
+  -Body '{"dry_run":true,"targets":["temp","previews","thumbnails"],"older_than_hours":24}'
+```
+
+cleanup実行:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/system/cleanup" `
+  -ContentType "application/json" `
+  -Body '{"dry_run":false,"targets":["temp","previews","thumbnails"],"older_than_hours":24}'
+```
+
+cleanup対象は再生成可能な派生物と一時ファイルに限定しています。学習動画、特徴量、モデル、Export済み動画は削除しません。
+
+Web UIでは、`ストレージ` セクションから容量確認、cleanup見積もり、cleanup実行ができます。
+
 ## モデルロールバック
 
 ロールバックはファイルをコピーせず、有効なモデルバージョンを指す値だけを変更します。
@@ -541,7 +571,7 @@ APIエラーは統一形式で返します。stack traceはレスポンスに返
 
 - 検出しきい値やシーン区間生成パラメータの細かいチューニングUIはまだ最小限です。
 - フィードバック再学習はsegment内の少数フレームを使う初期実装です。重み付けや能動学習UIは次段階です。
-- 削除API、古い成果物のクリーンアップは未実装です。
+- cleanupは `temp` / `previews` / `thumbnails` 対象です。モデルやExport済み動画の削除UIは未実装です。
 - プレビューとサムネイルはExportジョブ成功時に生成されます。既存Exportに対する後追い生成APIは未実装です。
 - Web UIはローカル開発用で、認証や複数ユーザー運用は対象外です。
 - CPU fallbackは優先していません。

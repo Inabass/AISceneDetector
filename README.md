@@ -279,6 +279,24 @@ Invoke-RestMethod -Method Post `
   -Body '{"threshold":null,"feature_ids":[1]}'
 ```
 
+保存済みフィードバックを再学習に含める場合:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/models/1/train" `
+  -ContentType "application/json" `
+  -Body '{"threshold":null,"include_feedback":true}'
+```
+
+特定のフィードバックだけ使う場合:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/models/1/train" `
+  -ContentType "application/json" `
+  -Body '{"threshold":null,"include_feedback":true,"feedback_ids":[1,2,3]}'
+```
+
 モデルバージョンは作成後に変更しません。追加学習や再学習では新しい `v2`、`v3` を作成します。
 
 確認:
@@ -418,6 +436,8 @@ curl.exe "http://127.0.0.1:8000/api/v1/feedback?detection_id=3"
 
 Web UIでは、シーン一覧に表示される `正しい` / `誤検出` / `無視` ボタンから登録できます。
 
+フィードバックを再学習に含めると、対象シーンの代表時刻フレームからOpenCLIP特徴量を生成し、`data\features\feedback\...` に保存します。DBにはフィードバックID、ラベル、時刻、相対パスなどのメタデータだけを保持します。
+
 ## ジョブ確認とキャンセル
 
 ジョブ確認:
@@ -485,7 +505,7 @@ APIエラーは統一形式で返します。stack traceはレスポンスに返
 ## 現時点の制限
 
 - 検出しきい値やシーン区間生成パラメータの細かいチューニングUIはまだ最小限です。
-- フィードバックは保存まで実装済みです。フィードバックを直接モデル再学習に混ぜる処理は次段階です。
+- フィードバック再学習はsegment代表フレームの特徴量を使う初期実装です。区間全体から複数フレームを抽出する高精度化は次段階です。
 - 個別Exportの再試行API、削除API、古い成果物のクリーンアップは未実装です。
 - プレビューとサムネイルはExportジョブ成功時に生成されます。既存Exportに対する後追い生成APIは未実装です。
 - Web UIはローカル開発用で、認証や複数ユーザー運用は対象外です。

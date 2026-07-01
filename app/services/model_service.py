@@ -1,23 +1,45 @@
 import json
 import shutil
+import hashlib
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from sqlalchemy.orm import Session
 
+from app.core.ai.openclip_extractor import OpenCLIPFeatureExtractor, is_cuda_oom
 from app.core.config import Settings, get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAppError
+from app.core.video.reader import OpenCVVideoReader
 from app.db.session import SessionLocal
 from app.db.unit_of_work import UnitOfWork
+from app.models.feedback import DetectionFeedback
 from app.models.feature import Feature
 from app.models.model import AiModel, ModelVersion
 from app.models.training_video import TrainingVideo
+from app.repositories.detection_repository import DetectionRepository
+from app.repositories.feedback_repository import FeedbackRepository
 from app.repositories.feature_repository import FeatureRepository
 from app.repositories.model_repository import ModelRepository
+from app.services.gpu_service import GpuService
 from app.services.job_service import JobService
 from app.services.storage_service import StorageService
+
+
+@dataclass(frozen=True)
+class TrainingFeatureItem:
+    source_kind: str
+    label_type: str
+    path: str
+    frame_count: int
+    cache_key: str
+    extractor_json: str
+    feature_id: int | None = None
+    source_video_id: int | None = None
+    feedback_id: int | None = None
+    sha256: str | None = None
 
 
 class ModelService:
@@ -27,6 +49,8 @@ class ModelService:
         self.storage = StorageService(settings)
         self.model_repository = ModelRepository(db)
         self.feature_repository = FeatureRepository(db)
+        self.feedback_repository = FeedbackRepository(db)
+        self.detection_repository = DetectionRepository(db)
         self.job_service = JobService(db)
 
     def create_model(self, name: str, description: str | None = None) -> AiModel:
@@ -66,10 +90,20 @@ class ModelService:
         parent_version_id: int | None = None,
         threshold: float | None = None,
         feature_ids: list[int] | None = None,
+        include_feedback: bool = False,
+        feedback_ids: list[int] | None = None,
     ) -> int:
         model = self.get_model(model_id)
         self._ensure_no_active_training_job(model.id)
         normalized_feature_ids = self._normalize_feature_ids(feature_ids)
+        normalized_feedback_ids = self._normalize_feedback_ids(feedback_ids)
+        if normalized_feedback_ids and not include_feedback:
+            raise ValidationAppError(
+                message="feedback_ids require include_feedback=true.",
+                suggested_action="Set include_feedback to true or omit feedback_ids.",
+            )
+        if include_feedback:
+            GpuService(self.settings).require_cuda_available()
         if parent_version_id is not None:
             parent = self.model_repository.get_version(parent_version_id)
             if parent is None or parent.model_id != model.id:
@@ -87,6 +121,8 @@ class ModelService:
                 "parent_version_id": parent_version_id,
                 "threshold": threshold,
                 "feature_ids": normalized_feature_ids,
+                "include_feedback": include_feedback,
+                "feedback_ids": normalized_feedback_ids,
             },
         )
         return job.id
@@ -127,9 +163,17 @@ class ModelService:
             parent_version_id = params.get("parent_version_id")
             requested_threshold = params.get("threshold")
             requested_feature_ids = params.get("feature_ids")
-            features = self._collect_feature_set(requested_feature_ids)
-            positive_items = [item for item in features if item[1].label_type == "positive"]
-            negative_items = [item for item in features if item[1].label_type == "negative"]
+            include_feedback = bool(params.get("include_feedback"))
+            requested_feedback_ids = params.get("feedback_ids")
+            features = self._collect_feature_set(
+                requested_feature_ids,
+                include_feedback=include_feedback,
+                feedback_ids=requested_feedback_ids,
+                job_id=job_id,
+                job_service=job_service,
+            )
+            positive_items = [item for item in features if item.label_type == "positive"]
+            negative_items = [item for item in features if item.label_type == "negative"]
             if not positive_items:
                 raise ValidationAppError(
                     message="At least one positive training feature is required.",
@@ -233,6 +277,7 @@ class ModelService:
                     "artifact_path": version.artifact_path,
                     "positive_feature_count": len(positive_items),
                     "negative_feature_count": len(negative_items),
+                    "include_feedback": include_feedback,
                 },
             )
         except Exception as exc:
@@ -264,16 +309,33 @@ class ModelService:
             )
         return normalized
 
+    def _normalize_feedback_ids(self, feedback_ids: list[int] | None) -> list[int] | None:
+        if feedback_ids is None:
+            return None
+        normalized = sorted({int(feedback_id) for feedback_id in feedback_ids})
+        if not normalized:
+            raise ValidationAppError(
+                message="feedback_ids must not be empty when provided.",
+                suggested_action="Omit feedback_ids to use all usable feedback.",
+            )
+        return normalized
+
     def _collect_feature_set(
         self,
         feature_ids: list[int] | None = None,
-    ) -> list[tuple[Feature, TrainingVideo]]:
-        features = self.feature_repository.list_succeeded_training_features(feature_ids)
+        include_feedback: bool = False,
+        feedback_ids: list[int] | None = None,
+        job_id: int | None = None,
+        job_service: JobService | None = None,
+    ) -> list[TrainingFeatureItem]:
+        feature_rows = self.feature_repository.list_succeeded_training_features(feature_ids)
         valid_features = [
-            item for item in features if self._feature_manifest_exists(item[0])
+            self._training_feature_item(feature, video)
+            for feature, video in feature_rows
+            if self._feature_manifest_exists(feature)
         ]
         if feature_ids is not None:
-            found_ids = {feature.id for feature, _video in valid_features}
+            found_ids = {item.feature_id for item in valid_features}
             missing_ids = sorted(set(feature_ids) - found_ids)
             if missing_ids:
                 raise ValidationAppError(
@@ -281,12 +343,42 @@ class ModelService:
                     detail={"missing_feature_ids": missing_ids},
                     suggested_action="Use succeeded training features with existing manifests.",
                 )
-        if not valid_features:
+        feedback_features: list[TrainingFeatureItem] = []
+        if include_feedback:
+            feedback_features = self._collect_feedback_feature_set(
+                feedback_ids=feedback_ids,
+                job_id=job_id,
+                job_service=job_service,
+            )
+        elif feedback_ids is not None:
+            raise ValidationAppError(
+                message="feedback_ids require include_feedback=true.",
+                suggested_action="Set include_feedback to true or omit feedback_ids.",
+            )
+        all_features = [*valid_features, *feedback_features]
+        if not all_features:
             raise ValidationAppError(
                 message="No completed training features were found.",
                 suggested_action="Run feature extraction for training videos first.",
             )
-        return valid_features
+        return all_features
+
+    def _training_feature_item(
+        self,
+        feature: Feature,
+        video: TrainingVideo,
+    ) -> TrainingFeatureItem:
+        return TrainingFeatureItem(
+            source_kind="training_video",
+            label_type=video.label_type,
+            path=feature.path,
+            frame_count=feature.frame_count,
+            cache_key=feature.cache_key,
+            extractor_json=feature.extractor_json,
+            feature_id=feature.id,
+            source_video_id=video.id,
+            sha256=video.sha256,
+        )
 
     def _feature_manifest_exists(self, feature: Feature) -> bool:
         try:
@@ -294,25 +386,204 @@ class ModelService:
         except Exception:
             return False
 
+    def _collect_feedback_feature_set(
+        self,
+        feedback_ids: list[int] | None,
+        job_id: int | None,
+        job_service: JobService | None,
+    ) -> list[TrainingFeatureItem]:
+        feedback_items = self.feedback_repository.list_for_model_training(feedback_ids)
+        if feedback_ids is not None:
+            found_ids = {feedback.id for feedback in feedback_items}
+            missing_ids = sorted(set(feedback_ids) - found_ids)
+            if missing_ids:
+                raise ValidationAppError(
+                    message="Some requested feedback items are missing or not usable.",
+                    detail={"missing_feedback_ids": missing_ids},
+                    suggested_action="Use positive or negative feedback items.",
+                )
+        items: list[TrainingFeatureItem] = []
+        extractor = OpenCLIPFeatureExtractor(self.settings) if feedback_items else None
+        for feedback in feedback_items:
+            item = self._ensure_feedback_feature(
+                feedback,
+                extractor=extractor,
+                job_id=job_id,
+                job_service=job_service,
+            )
+            if item is not None:
+                items.append(item)
+        return items
+
+    def _ensure_feedback_feature(
+        self,
+        feedback: DetectionFeedback,
+        extractor: OpenCLIPFeatureExtractor | None,
+        job_id: int | None,
+        job_service: JobService | None,
+    ) -> TrainingFeatureItem | None:
+        if feedback.label == "ignore":
+            return None
+        detection = self.detection_repository.get(feedback.detection_result_id)
+        if detection is None or detection.status != "succeeded":
+            return None
+        if feedback.segment_id is None:
+            return None
+        segment = self.detection_repository.get_segment(feedback.segment_id)
+        if segment is None or segment.detection_result_id != detection.id:
+            return None
+
+        if extractor is None:
+            extractor = OpenCLIPFeatureExtractor(self.settings)
+        extractor_metadata = extractor.metadata()
+        cache_key = self._feedback_cache_key(feedback, extractor_metadata)
+        manifest_path = self._feedback_feature_manifest_path(feedback, cache_key)
+        if manifest_path.exists() and self._feedback_manifest_valid(manifest_path):
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            return self._feedback_feature_item(feedback, manifest, cache_key)
+
+        video_path = self.storage.resolve_storage_path(detection.source_video_path)
+        timestamp = segment.representative_timestamp_sec
+        frame = self._read_feedback_frame(video_path, timestamp)
+        try:
+            vectors = extractor.encode_frames([frame]).vectors
+        except Exception as exc:
+            if is_cuda_oom(exc):
+                extractor.clear_memory_after_oom()
+            raise
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        chunk_path = manifest_path.with_name("features_000000.npy")
+        np.save(chunk_path, vectors)
+        manifest = {
+            "version": 1,
+            "cache_key": cache_key,
+            "source": "feedback",
+            "feedback_id": feedback.id,
+            "detection_result_id": feedback.detection_result_id,
+            "segment_id": feedback.segment_id,
+            "label_type": feedback.label,
+            "extractor": extractor_metadata,
+            "dtype": str(vectors.dtype),
+            "shape": list(vectors.shape),
+            "frame_count": int(vectors.shape[0]),
+            "timestamp_sec": timestamp,
+            "chunks": [
+                {
+                    "index": 0,
+                    "path": self.storage.relative_path(chunk_path),
+                    "shape": list(vectors.shape),
+                    "dtype": str(vectors.dtype),
+                }
+            ],
+        }
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+        if job_service is not None and job_id is not None:
+            job_service.log(
+                job_id,
+                "info",
+                "feedback_feature",
+                "Feedback feature was generated.",
+                {"feedback_id": feedback.id, "path": self.storage.relative_path(manifest_path)},
+            )
+        return self._feedback_feature_item(feedback, manifest, cache_key)
+
+    def _feedback_cache_key(
+        self,
+        feedback: DetectionFeedback,
+        extractor_metadata: dict[str, object],
+    ) -> str:
+        payload = {
+            "feedback_id": feedback.id,
+            "detection_result_id": feedback.detection_result_id,
+            "segment_id": feedback.segment_id,
+            "label": feedback.label,
+            "start_sec": feedback.start_sec,
+            "end_sec": feedback.end_sec,
+            "extractor": extractor_metadata,
+        }
+        serialized = json.dumps(payload, sort_keys=True, ensure_ascii=True)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _feedback_feature_manifest_path(
+        self,
+        feedback: DetectionFeedback,
+        cache_key: str,
+    ) -> Path:
+        return self.storage.ensure_under_root(
+            self.settings.features_dir
+            / "feedback"
+            / f"feedback_{feedback.id}"
+            / cache_key
+            / "manifest.json"
+        )
+
+    def _feedback_manifest_valid(self, manifest_path: Path) -> bool:
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            chunks = manifest.get("chunks", [])
+            if not chunks:
+                return False
+            return all(
+                self.storage.resolve_storage_path(str(chunk["path"])).exists()
+                for chunk in chunks
+            )
+        except Exception:
+            return False
+
+    def _feedback_feature_item(
+        self,
+        feedback: DetectionFeedback,
+        manifest: dict[str, object],
+        cache_key: str,
+    ) -> TrainingFeatureItem:
+        return TrainingFeatureItem(
+            source_kind="feedback",
+            label_type=feedback.label,
+            path=self.storage.relative_path(
+                self._feedback_feature_manifest_path(feedback, cache_key)
+            ),
+            frame_count=int(manifest.get("frame_count") or 1),
+            cache_key=cache_key,
+            extractor_json=json.dumps(manifest["extractor"], ensure_ascii=True),
+            feedback_id=feedback.id,
+            sha256=str(json.loads(feedback.metadata_json).get("source_sha256", "")),
+        )
+
+    def _read_feedback_frame(self, video_path: Path, timestamp_sec: float) -> object:
+        with OpenCVVideoReader(video_path) as reader:
+            reader.seek(timestamp_sec)
+            ok, frame = reader.capture.read()
+            if not ok:
+                raise ValidationAppError(
+                    message="Could not read feedback frame from source video.",
+                    detail={"path": str(video_path), "timestamp_sec": timestamp_sec},
+                    suggested_action="Check the source video or regenerate detection.",
+                )
+            return reader._cv2.cvtColor(frame, reader._cv2.COLOR_BGR2RGB)
+
     def _validate_extractor_compatibility(
         self,
-        features: list[tuple[Feature, TrainingVideo]],
+        features: list[TrainingFeatureItem],
     ) -> dict[str, object]:
-        extractor = json.loads(features[0][0].extractor_json)
-        for feature, video in features[1:]:
-            current = json.loads(feature.extractor_json)
+        extractor = json.loads(features[0].extractor_json)
+        for item in features[1:]:
+            current = json.loads(item.extractor_json)
             if current != extractor:
                 raise ValidationAppError(
                     message="Training features use mixed extractors.",
                     detail={
-                        "source_video_id": video.id,
-                        "feature_id": feature.id,
+                        "source_kind": item.source_kind,
+                        "feature_id": item.feature_id,
+                        "feedback_id": item.feedback_id,
                     },
                     suggested_action="Regenerate features with the same extractor settings.",
                 )
         return extractor
 
-    def _centroid(self, items: list[tuple[Feature, TrainingVideo]]) -> tuple[np.ndarray, int]:
+    def _centroid(self, items: list[TrainingFeatureItem]) -> tuple[np.ndarray, int]:
         total: np.ndarray | None = None
         count = 0
         for vectors in self._iter_vectors(items):
@@ -330,7 +601,7 @@ class ModelService:
 
     def _score_stats(
         self,
-        items: list[tuple[Feature, TrainingVideo]],
+        items: list[TrainingFeatureItem],
         centroid: np.ndarray,
     ) -> dict[str, float | int | None]:
         count = 0
@@ -351,10 +622,10 @@ class ModelService:
 
     def _iter_vectors(
         self,
-        items: list[tuple[Feature, TrainingVideo]],
+        items: list[TrainingFeatureItem],
     ) -> Iterator[np.ndarray]:
-        for feature, _video in items:
-            manifest_path = self.storage.resolve_storage_path(feature.path)
+        for item in items:
+            manifest_path = self.storage.resolve_storage_path(item.path)
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             for chunk in manifest.get("chunks", []):
                 chunk_path = self.storage.resolve_storage_path(str(chunk["path"]))
@@ -384,7 +655,7 @@ class ModelService:
     def _write_artifacts(
         self,
         temp_dir: Path,
-        features: list[tuple[Feature, TrainingVideo]],
+        features: list[TrainingFeatureItem],
         extractor: dict[str, object],
         positive_centroid: np.ndarray,
         negative_centroid: np.ndarray | None,
@@ -411,15 +682,17 @@ class ModelService:
             "version": 1,
             "features": [
                 {
-                    "feature_id": feature.id,
-                    "source_video_id": video.id,
-                    "label_type": video.label_type,
-                    "sha256": video.sha256,
-                    "path": feature.path,
-                    "frame_count": feature.frame_count,
-                    "cache_key": feature.cache_key,
+                    "source_kind": item.source_kind,
+                    "feature_id": item.feature_id,
+                    "feedback_id": item.feedback_id,
+                    "source_video_id": item.source_video_id,
+                    "label_type": item.label_type,
+                    "sha256": item.sha256,
+                    "path": item.path,
+                    "frame_count": item.frame_count,
+                    "cache_key": item.cache_key,
                 }
-                for feature, video in features
+                for item in features
             ],
         }
         feature_set_path.write_text(

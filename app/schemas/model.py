@@ -13,6 +13,8 @@ class ModelTrainRequest(BaseModel):
     parent_version_id: int | None = None
     threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     feature_ids: list[int] | None = None
+    include_feedback: bool = False
+    feedback_ids: list[int] | None = None
 
 
 class ModelRollbackRequest(BaseModel):

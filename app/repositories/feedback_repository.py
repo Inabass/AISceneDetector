@@ -34,3 +34,18 @@ class FeedbackRepository(Repository[DetectionFeedback]):
             statement = statement.where(DetectionFeedback.label == label)
         statement = statement.order_by(DetectionFeedback.created_at.desc()).limit(limit)
         return list(self.db.execute(statement).scalars())
+
+    def list_for_model_training(
+        self,
+        feedback_ids: list[int] | None = None,
+    ) -> list[DetectionFeedback]:
+        conditions = [DetectionFeedback.label.in_(["positive", "negative"])]
+        if feedback_ids is not None:
+            conditions.append(DetectionFeedback.id.in_(feedback_ids))
+        return list(
+            self.db.execute(
+                select(DetectionFeedback)
+                .where(*conditions)
+                .order_by(DetectionFeedback.created_at.desc())
+            ).scalars()
+        )

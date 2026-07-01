@@ -94,6 +94,8 @@ def train_model(
         parent_version_id=payload.parent_version_id,
         threshold=payload.threshold,
         feature_ids=payload.feature_ids,
+        include_feedback=payload.include_feedback,
+        feedback_ids=payload.feedback_ids,
     )
     job = JobRepository(db).get(job_id)
     if job and job.status == "queued":

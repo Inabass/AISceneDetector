@@ -194,6 +194,12 @@
           <label>モデルID
             <input id="modelId" type="number" min="1" value="1">
           </label>
+          <label>フィードバック
+            <select id="includeFeedback">
+              <option value="false">使わない</option>
+              <option value="true">再学習に含める</option>
+            </select>
+          </label>
         </div>
         <div class="actions">
           <button id="createModel">モデルを作成</button>
@@ -375,7 +381,10 @@
           const data = await api(`/api/v1/models/${modelId}/train`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ threshold: null }),
+            body: JSON.stringify({
+              threshold: null,
+              include_feedback: $("includeFeedback").value === "true",
+            }),
           });
           await pollJob(data.id, "modelResult");
           const model = await api(`/api/v1/models/${modelId}`);

@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.feature import Feature
+from app.models.training_video import TrainingVideo
 from app.repositories.base import Repository
 
 
@@ -23,3 +24,18 @@ class FeatureRepository(Repository[Feature]):
             .order_by(Feature.created_at.desc())
             .limit(1)
         ).scalar_one_or_none()
+
+    def list_succeeded_training_features(self) -> list[tuple[Feature, TrainingVideo]]:
+        return list(
+            self.db.execute(
+                select(Feature, TrainingVideo)
+                .join(TrainingVideo, TrainingVideo.id == Feature.source_video_id)
+                .where(
+                    Feature.kind == "training_frame_features",
+                    Feature.status == "succeeded",
+                    TrainingVideo.validation_status == "valid",
+                    TrainingVideo.processing_status == "READY",
+                )
+                .order_by(TrainingVideo.label_type.asc(), Feature.created_at.desc())
+            ).all()
+        )

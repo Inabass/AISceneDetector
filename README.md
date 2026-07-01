@@ -88,6 +88,21 @@ Start training feature extraction:
 curl -X POST http://127.0.0.1:8000/api/v1/training/videos/1/features -H "Content-Type: application/json" -d "{\"frame_interval_sec\":1.0}"
 ```
 
+Create a model and start model training from completed training features:
+
+```bat
+curl -X POST http://127.0.0.1:8000/api/v1/models -H "Content-Type: application/json" -d "{\"name\":\"sample-model\",\"description\":\"first model\"}"
+curl -X POST http://127.0.0.1:8000/api/v1/models/1/train -H "Content-Type: application/json" -d "{\"threshold\":null}"
+```
+
+Model artifacts are stored under `data/models/`. SQLite stores only model
+metadata, active version pointers, thresholds, metrics, and relative artifact
+paths. Model versions are immutable; rollback changes only the active version:
+
+```bat
+curl -X POST http://127.0.0.1:8000/api/v1/models/1/rollback -H "Content-Type: application/json" -d "{\"version_id\":1}"
+```
+
 Check or cancel a job:
 
 ```text

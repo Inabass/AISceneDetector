@@ -20,6 +20,16 @@ class JobRepository(Repository[Job]):
         self.db.add(log)
         return log
 
+    def list_logs(self, job_id: int, limit: int = 100) -> list[JobLog]:
+        return list(
+            self.db.execute(
+                select(JobLog)
+                .where(JobLog.job_id == job_id)
+                .order_by(JobLog.created_at.asc())
+                .limit(limit)
+            ).scalars()
+        )
+
     def list_recent(self, limit: int = 50) -> list[Job]:
         return list(
             self.db.execute(

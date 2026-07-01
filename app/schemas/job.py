@@ -17,6 +17,24 @@ class JobResponse(ApiResponse[JobData]):
     pass
 
 
+class JobListResponse(ApiResponse[list[JobData]]):
+    pass
+
+
+class JobLogData(BaseModel):
+    id: int
+    job_id: int
+    level: str
+    step: str | None
+    message: str
+    details: dict[str, object] | None
+    created_at: str
+
+
+class JobLogListResponse(ApiResponse[list[JobLogData]]):
+    pass
+
+
 class FeatureJobRequest(BaseModel):
     frame_interval_sec: float | None = None
     batch_size: int | None = None

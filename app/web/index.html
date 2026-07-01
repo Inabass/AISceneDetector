@@ -183,6 +183,23 @@
       </section>
 
       <section>
+        <h2>ジョブ</h2>
+        <div class="row">
+          <label>ジョブID
+            <input id="jobId" type="number" min="1" value="1">
+          </label>
+        </div>
+        <div class="actions">
+          <button class="secondary" id="loadJobs">ジョブ一覧を更新</button>
+          <button class="secondary" id="loadJobDetail">ジョブ詳細を表示</button>
+          <button class="secondary" id="loadJobLogs">ジョブログを表示</button>
+        </div>
+        <div class="result" id="jobResult">ジョブの状態とログを確認できます。</div>
+        <div class="list" id="jobsList"></div>
+        <div class="list" id="jobLogsList"></div>
+      </section>
+
+      <section>
         <h2>2. モデル</h2>
         <div class="grid">
           <label>モデル名
@@ -320,6 +337,7 @@
 
       async function pollJob(jobId, targetId) {
         state.lastJobId = jobId;
+        $("jobId").value = jobId;
         for (;;) {
           const job = await api(`/api/v1/jobs/${jobId}`);
           print(targetId, job);
@@ -329,6 +347,90 @@
           await new Promise((resolve) => setTimeout(resolve, 1500));
         }
       }
+
+      async function loadJobs() {
+        const jobs = await api("/api/v1/jobs");
+        $("jobsList").innerHTML = jobs.map((job) => `
+          <div class="item">
+            <h3>Job ${job.id} / ${job.status}</h3>
+            <div class="meta">
+              type=${escapeHtml(job.type)} / progress=${job.progress}% /
+              step=${escapeHtml(job.current_step || "-")}<br>
+              ${job.error_code ? `error=${escapeHtml(job.error_code)} / ${escapeHtml(job.error_message || "")}` : ""}
+            </div>
+            <div class="actions">
+              <button class="secondary" data-job="${job.id}">このジョブを選択</button>
+              ${["failed", "cancelled"].includes(job.status) ? `<button class="secondary" data-retry-job="${job.id}">再試行</button>` : ""}
+            </div>
+          </div>
+        `).join("") || "<p>ジョブはまだありません。</p>";
+        $("jobsList").querySelectorAll("[data-job]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            $("jobId").value = button.dataset.job;
+            await loadJobDetail();
+            await loadJobLogs();
+          });
+        });
+        $("jobsList").querySelectorAll("[data-retry-job]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            await retryJob(Number(button.dataset.retryJob));
+          });
+        });
+      }
+
+      async function loadJobDetail() {
+        const job = await api(`/api/v1/jobs/${Number($("jobId").value)}`);
+        print("jobResult", job);
+      }
+
+      async function loadJobLogs() {
+        const logs = await api(`/api/v1/jobs/${Number($("jobId").value)}/logs`);
+        $("jobLogsList").innerHTML = logs.map((log) => `
+          <div class="item">
+            <h3>${escapeHtml(log.level)} / ${escapeHtml(log.step || "-")}</h3>
+            <div class="meta">
+              ${escapeHtml(log.created_at)}<br>
+              ${escapeHtml(log.message)}<br>
+              ${log.details ? escapeHtml(JSON.stringify(log.details)) : ""}
+            </div>
+          </div>
+        `).join("") || "<p>ログはありません。</p>";
+      }
+
+      async function retryJob(jobId) {
+        try {
+          const job = await api(`/api/v1/jobs/${jobId}/retry`, { method: "POST" });
+          $("jobId").value = job.id;
+          print("jobResult", job);
+          await loadJobs();
+        } catch (error) {
+          print("jobResult", error.message);
+        }
+      }
+
+      $("loadJobs").addEventListener("click", async () => {
+        try {
+          await loadJobs();
+        } catch (error) {
+          print("jobResult", error.message);
+        }
+      });
+
+      $("loadJobDetail").addEventListener("click", async () => {
+        try {
+          await loadJobDetail();
+        } catch (error) {
+          print("jobResult", error.message);
+        }
+      });
+
+      $("loadJobLogs").addEventListener("click", async () => {
+        try {
+          await loadJobLogs();
+        } catch (error) {
+          print("jobResult", error.message);
+        }
+      });
 
       $("uploadTraining").addEventListener("click", async () => {
         try {
@@ -635,6 +737,7 @@
       });
 
       refreshSystemStatus();
+      loadJobs().catch(() => {});
       loadDetections().catch(() => {});
       loadExports().catch(() => {});
       loadFeedback().catch(() => {});

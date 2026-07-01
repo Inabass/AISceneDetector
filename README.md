@@ -455,10 +455,28 @@ AISD_FEEDBACK_MIN_FRAME_INTERVAL_SEC=0.5
 
 ## ジョブ確認とキャンセル
 
+ジョブ一覧:
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/v1/jobs"
+```
+
 ジョブ確認:
 
 ```powershell
 curl.exe "http://127.0.0.1:8000/api/v1/jobs/1"
+```
+
+ジョブログ:
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/v1/jobs/1/logs"
+```
+
+失敗またはキャンセル済みジョブの再試行:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/jobs/1/retry"
 ```
 
 キャンセル要求:
@@ -468,6 +486,8 @@ curl.exe -X POST "http://127.0.0.1:8000/api/v1/jobs/1/cancel"
 ```
 
 キャンセルは即時停止ではなく、処理の安全な境界で反映されます。
+
+Web UIでは、`ジョブ` セクションから直近ジョブ、詳細、ログを確認できます。`failed` / `cancelled` のジョブには `再試行` ボタンが表示されます。
 
 ## モデルロールバック
 
@@ -521,7 +541,7 @@ APIエラーは統一形式で返します。stack traceはレスポンスに返
 
 - 検出しきい値やシーン区間生成パラメータの細かいチューニングUIはまだ最小限です。
 - フィードバック再学習はsegment内の少数フレームを使う初期実装です。重み付けや能動学習UIは次段階です。
-- 個別Exportの再試行API、削除API、古い成果物のクリーンアップは未実装です。
+- 削除API、古い成果物のクリーンアップは未実装です。
 - プレビューとサムネイルはExportジョブ成功時に生成されます。既存Exportに対する後追い生成APIは未実装です。
 - Web UIはローカル開発用で、認証や複数ユーザー運用は対象外です。
 - CPU fallbackは優先していません。

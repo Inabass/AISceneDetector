@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,7 +7,7 @@
     <style>
       :root {
         color-scheme: light;
-        font-family: Arial, Helvetica, sans-serif;
+        font-family: "Yu Gothic", "Meiryo", Arial, Helvetica, sans-serif;
         background: #f7f7f4;
         color: #202124;
       }
@@ -72,26 +72,26 @@
       <header>
         <div>
           <h1>AI Scene Detector</h1>
-          <p>Phase 1 foundation is running.</p>
+          <p>学習動画、特徴量抽出、モデル生成の基盤が起動しています。</p>
         </div>
-        <div class="status" id="health">Checking API...</div>
+        <div class="status" id="health">API状態を確認中...</div>
       </header>
       <div class="grid">
         <section>
-          <h2>Training</h2>
-          <p>Video upload and feature extraction will be added in later phases.</p>
+          <h2>学習</h2>
+          <p>学習動画を登録し、OpenCLIP特徴量を生成します。</p>
         </section>
         <section>
-          <h2>Detection</h2>
-          <p>Scene detection jobs will run through the background job system.</p>
+          <h2>検出</h2>
+          <p>検出ジョブ、タイムライン、シーン区間生成は次の実装対象です。</p>
         </section>
         <section>
-          <h2>Models</h2>
-          <p>Model versions will be immutable and managed through the registry.</p>
+          <h2>モデル</h2>
+          <p>モデルバージョンは変更不可として保存し、有効バージョンを管理します。</p>
         </section>
         <section>
-          <h2>Settings</h2>
-          <p>Storage, ffmpeg, CUDA, and batch defaults are centralized.</p>
+          <h2>設定</h2>
+          <p>保存先、ffmpeg、CUDA、バッチサイズなどの既定値を一元管理します。</p>
         </section>
       </div>
     </main>
@@ -101,10 +101,10 @@
         .then((payload) => {
           const data = payload.data;
           document.getElementById("health").textContent =
-            `${data.status.toUpperCase()} / DB ${data.database.toUpperCase()}`;
+            `API ${data.status.toUpperCase()} / DB ${data.database.toUpperCase()}`;
         })
         .catch(() => {
-          document.getElementById("health").textContent = "API unavailable";
+          document.getElementById("health").textContent = "APIに接続できません";
         });
     </script>
   </body>

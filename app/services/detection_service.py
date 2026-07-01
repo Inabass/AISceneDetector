@@ -305,7 +305,9 @@ class DetectionService:
             job_service.log(job_id, "error", "detection", message)
 
     def list_segments(self, detection_id: int) -> list[DetectionSegment]:
-        self.get_detection(detection_id)
+        detection = self.get_detection(detection_id)
+        segments = self.repository.list_segments(detection_id)
+        self._ensure_segment_thumbnails(detection, segments)
         return self.repository.list_segments(detection_id)
 
     def generate_segments(self, detection_id: int) -> list[DetectionSegment]:
@@ -338,6 +340,14 @@ class DetectionService:
             self.repository.delete_segments(detection.id)
             saved = []
             for index, candidate in enumerate(candidates, start=1):
+                metadata = dict(candidate.metadata)
+                metadata.update(
+                    self._segment_thumbnail_metadata(
+                        detection=detection,
+                        segment_index=index,
+                        timestamp_sec=candidate.representative_timestamp_sec,
+                    )
+                )
                 segment = DetectionSegment(
                     detection_result_id=detection.id,
                     segment_index=index,
@@ -353,11 +363,98 @@ class DetectionService:
                     start_frame_index=candidate.start_frame_index,
                     end_frame_index=candidate.end_frame_index,
                     status="detected",
-                    metadata_json=json.dumps(candidate.metadata, ensure_ascii=True),
+                    metadata_json=json.dumps(metadata, ensure_ascii=True),
                 )
                 self.repository.add_segment(segment)
                 saved.append(segment)
         return self.repository.list_segments(detection.id)
+
+    def _ensure_segment_thumbnails(
+        self,
+        detection: DetectionResult,
+        segments: list[DetectionSegment],
+    ) -> None:
+        changed = False
+        for segment in segments:
+            metadata = json.loads(segment.metadata_json)
+            if metadata.get("thumbnail_path"):
+                continue
+            metadata.update(
+                self._segment_thumbnail_metadata(
+                    detection=detection,
+                    segment_index=segment.segment_index,
+                    timestamp_sec=segment.representative_timestamp_sec,
+                )
+            )
+            segment.metadata_json = json.dumps(metadata, ensure_ascii=True)
+            changed = True
+        if changed:
+            with UnitOfWork(self.db):
+                pass
+
+    def _segment_thumbnail_metadata(
+        self,
+        detection: DetectionResult,
+        segment_index: int,
+        timestamp_sec: float,
+    ) -> dict[str, object]:
+        try:
+            thumbnail_path = self._write_segment_thumbnail(
+                detection=detection,
+                segment_index=segment_index,
+                timestamp_sec=timestamp_sec,
+            )
+            thumbnail_rel = self.storage.relative_path(thumbnail_path)
+            return {
+                "thumbnail_path": thumbnail_rel,
+                "thumbnail_url": f"/media/{thumbnail_rel}",
+            }
+        except Exception as exc:
+            return {"thumbnail_error": getattr(exc, "message", str(exc))}
+
+    def _write_segment_thumbnail(
+        self,
+        detection: DetectionResult,
+        segment_index: int,
+        timestamp_sec: float,
+    ) -> Path:
+        video_path = self.storage.resolve_storage_path(detection.source_video_path)
+        thumbnail_path = self.storage.ensure_under_root(
+            self.settings.thumbnails_dir
+            / "detections"
+            / f"detection_{detection.id}"
+            / f"segment_{segment_index:03d}.jpg"
+        )
+        if thumbnail_path.exists():
+            return thumbnail_path
+        thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
+        with OpenCVVideoReader(video_path) as reader:
+            reader.seek(timestamp_sec)
+            ok, frame = reader.capture.read()
+            if not ok:
+                raise ValidationAppError(
+                    message="Could not read segment thumbnail frame.",
+                    detail={
+                        "detection_id": detection.id,
+                        "segment_index": segment_index,
+                        "timestamp_sec": timestamp_sec,
+                    },
+                )
+            height, width = frame.shape[:2]
+            if width > 640:
+                scale = 640 / width
+                frame = reader._cv2.resize(
+                    frame,
+                    (640, max(1, int(height * scale))),
+                    interpolation=reader._cv2.INTER_AREA,
+                )
+            ok = reader._cv2.imwrite(str(thumbnail_path), frame)
+            if not ok:
+                raise ValidationAppError(
+                    message="Could not write segment thumbnail.",
+                    detail={"path": str(thumbnail_path)},
+                )
+        return thumbnail_path
 
     def _segment_settings(self) -> dict[str, float]:
         return {

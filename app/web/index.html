@@ -456,9 +456,21 @@
         $("segmentsList").innerHTML = segments.map((segment) => `
           <div class="item">
             <h3>シーン ${segment.segment_index}</h3>
+            ${segment.metadata?.thumbnail_url ? `
+              <div class="media">
+                <a href="${escapeHtml(segment.metadata.thumbnail_url)}" target="_blank">
+                  <img src="${escapeHtml(segment.metadata.thumbnail_url)}" alt="シーンサムネイル">
+                </a>
+                <div class="meta">
+                  代表時刻 ${segment.representative_timestamp_sec.toFixed(3)}s<br>
+                  フィードバック判断用サムネイル
+                </div>
+              </div>
+            ` : ""}
             <div class="meta">
               ${segment.padded_start_sec.toFixed(3)}s - ${segment.padded_end_sec.toFixed(3)}s /
               score=${segment.score.toFixed(4)} / max=${segment.max_score.toFixed(4)}
+              ${segment.metadata?.thumbnail_error ? `<br>thumbnail error: ${escapeHtml(segment.metadata.thumbnail_error)}` : ""}
             </div>
             <div class="actions">
               <button class="secondary" data-feedback-label="positive" data-feedback-segment="${segment.id}" data-feedback-detection="${segment.detection_result_id}">正しい</button>

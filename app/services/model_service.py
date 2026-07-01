@@ -8,7 +8,7 @@ import numpy as np
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
-from app.core.errors import NotFoundError, ValidationAppError
+from app.core.errors import ConflictError, NotFoundError, ValidationAppError
 from app.db.session import SessionLocal
 from app.db.unit_of_work import UnitOfWork
 from app.models.feature import Feature
@@ -65,8 +65,11 @@ class ModelService:
         model_id: int,
         parent_version_id: int | None = None,
         threshold: float | None = None,
+        feature_ids: list[int] | None = None,
     ) -> int:
         model = self.get_model(model_id)
+        self._ensure_no_active_training_job(model.id)
+        normalized_feature_ids = self._normalize_feature_ids(feature_ids)
         if parent_version_id is not None:
             parent = self.model_repository.get_version(parent_version_id)
             if parent is None or parent.model_id != model.id:
@@ -83,6 +86,7 @@ class ModelService:
                 "model_id": model_id,
                 "parent_version_id": parent_version_id,
                 "threshold": threshold,
+                "feature_ids": normalized_feature_ids,
             },
         )
         return job.id
@@ -116,12 +120,14 @@ class ModelService:
         job_service = JobService(self.db)
         job = job_service._require_job(job_id)
         params = json.loads(job.params_json or "{}")
+        temp_dir: Path | None = None
         try:
             job_service.start(job_id, "collecting_features")
             model = self.get_model(int(params["model_id"]))
             parent_version_id = params.get("parent_version_id")
             requested_threshold = params.get("threshold")
-            features = self._collect_feature_set()
+            requested_feature_ids = params.get("feature_ids")
+            features = self._collect_feature_set(requested_feature_ids)
             positive_items = [item for item in features if item[1].label_type == "positive"]
             negative_items = [item for item in features if item[1].label_type == "negative"]
             if not positive_items:
@@ -143,16 +149,16 @@ class ModelService:
                 return
 
             job_service.update_progress(job_id, 55, "estimating_threshold")
-            positive_scores = self._similarities(positive_items, positive_centroid)
+            positive_score_stats = self._score_stats(positive_items, positive_centroid)
             threshold = (
                 float(requested_threshold)
                 if requested_threshold is not None
-                else self._initial_threshold(positive_scores)
+                else self._initial_threshold(positive_score_stats)
             )
-            negative_scores = (
-                self._similarities(negative_items, positive_centroid)
+            negative_score_stats = (
+                self._score_stats(negative_items, positive_centroid)
                 if negative_items
-                else np.array([], dtype=np.float32)
+                else {"count": 0, "mean": None, "std": None}
             )
             margin = 0.05 if negative_items else 0.0
 
@@ -172,8 +178,8 @@ class ModelService:
                 margin=margin,
                 positive_count=positive_count,
                 negative_count=negative_count,
-                positive_scores=positive_scores,
-                negative_scores=negative_scores,
+                positive_score_stats=positive_score_stats,
+                negative_score_stats=negative_score_stats,
             )
 
             if job_service.is_cancel_requested(job_id):
@@ -230,16 +236,51 @@ class ModelService:
                 },
             )
         except Exception as exc:
+            if temp_dir is not None:
+                shutil.rmtree(temp_dir, ignore_errors=True)
             code = getattr(exc, "error_code", exc.__class__.__name__)
             message = getattr(exc, "message", str(exc))
             job_service.fail(job_id, code, message)
             job_service.log(job_id, "error", "model_training", message)
 
-    def _collect_feature_set(self) -> list[tuple[Feature, TrainingVideo]]:
-        features = self.feature_repository.list_succeeded_training_features()
+    def _ensure_no_active_training_job(self, model_id: int) -> None:
+        for job in self.job_service.repository.list_active_by_type("model_training"):
+            params = json.loads(job.params_json or "{}")
+            if params.get("model_id") == model_id:
+                raise ConflictError(
+                    message="A model training job is already active for this model.",
+                    detail={"model_id": model_id, "job_id": job.id, "status": job.status},
+                    suggested_action="Wait for the active job to finish or cancel it.",
+                )
+
+    def _normalize_feature_ids(self, feature_ids: list[int] | None) -> list[int] | None:
+        if feature_ids is None:
+            return None
+        normalized = sorted({int(feature_id) for feature_id in feature_ids})
+        if not normalized:
+            raise ValidationAppError(
+                message="feature_ids must not be empty when provided.",
+                suggested_action="Omit feature_ids to use all completed training features.",
+            )
+        return normalized
+
+    def _collect_feature_set(
+        self,
+        feature_ids: list[int] | None = None,
+    ) -> list[tuple[Feature, TrainingVideo]]:
+        features = self.feature_repository.list_succeeded_training_features(feature_ids)
         valid_features = [
             item for item in features if self._feature_manifest_exists(item[0])
         ]
+        if feature_ids is not None:
+            found_ids = {feature.id for feature, _video in valid_features}
+            missing_ids = sorted(set(feature_ids) - found_ids)
+            if missing_ids:
+                raise ValidationAppError(
+                    message="Some requested training features are missing or not usable.",
+                    detail={"missing_feature_ids": missing_ids},
+                    suggested_action="Use succeeded training features with existing manifests.",
+                )
         if not valid_features:
             raise ValidationAppError(
                 message="No completed training features were found.",
@@ -287,18 +328,26 @@ class ModelService:
             centroid = centroid / norm
         return centroid, count
 
-    def _similarities(
+    def _score_stats(
         self,
         items: list[tuple[Feature, TrainingVideo]],
         centroid: np.ndarray,
-    ) -> np.ndarray:
-        scores: list[np.ndarray] = []
+    ) -> dict[str, float | int | None]:
+        count = 0
+        mean = 0.0
+        m2 = 0.0
         for vectors in self._iter_vectors(items):
             batch = vectors.astype(np.float32, copy=False)
-            scores.append(batch @ centroid)
-        if not scores:
-            return np.array([], dtype=np.float32)
-        return np.concatenate(scores).astype(np.float32)
+            scores = batch @ centroid
+            for score in scores:
+                count += 1
+                delta = float(score) - mean
+                mean += delta / count
+                m2 += delta * (float(score) - mean)
+        if count == 0:
+            return {"count": 0, "mean": None, "std": None}
+        variance = m2 / count
+        return {"count": count, "mean": mean, "std": float(np.sqrt(variance))}
 
     def _iter_vectors(
         self,
@@ -311,12 +360,12 @@ class ModelService:
                 chunk_path = self.storage.resolve_storage_path(str(chunk["path"]))
                 yield np.load(chunk_path)
 
-    def _initial_threshold(self, positive_scores: np.ndarray) -> float:
-        if positive_scores.size == 0:
+    def _initial_threshold(self, positive_score_stats: dict[str, float | int | None]) -> float:
+        mean = positive_score_stats.get("mean")
+        std = positive_score_stats.get("std")
+        if mean is None or std is None:
             return 0.75
-        mean = float(np.mean(positive_scores))
-        std = float(np.std(positive_scores))
-        return max(0.1, min(0.95, mean - (2.0 * std)))
+        return max(0.1, min(0.95, float(mean) - (2.0 * float(std))))
 
     def _version_paths(
         self,
@@ -343,8 +392,8 @@ class ModelService:
         margin: float,
         positive_count: int,
         negative_count: int,
-        positive_scores: np.ndarray,
-        negative_scores: np.ndarray,
+        positive_score_stats: dict[str, float | int | None],
+        negative_score_stats: dict[str, float | int | None],
     ) -> tuple[Path, Path, dict[str, Any]]:
         artifact_path = temp_dir / "model.npz"
         feature_set_path = temp_dir / "feature_set.json"
@@ -386,11 +435,9 @@ class ModelService:
             "metrics": {
                 "positive_vector_count": positive_count,
                 "negative_vector_count": negative_count,
-                "positive_score_mean": float(np.mean(positive_scores)),
-                "positive_score_std": float(np.std(positive_scores)),
-                "negative_score_mean": (
-                    float(np.mean(negative_scores)) if negative_scores.size else None
-                ),
+                "positive_score_mean": positive_score_stats["mean"],
+                "positive_score_std": positive_score_stats["std"],
+                "negative_score_mean": negative_score_stats["mean"],
                 "negative_available": bool(negative_count),
             },
             "extractor": extractor,

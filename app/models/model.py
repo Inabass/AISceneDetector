@@ -13,7 +13,7 @@ class AiModel(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     active_version_id: Mapped[int | None] = mapped_column(
-        ForeignKey("model_versions.id"),
+        Integer,
         nullable=True,
         index=True,
     )

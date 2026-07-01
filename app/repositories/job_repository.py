@@ -26,3 +26,15 @@ class JobRepository(Repository[Job]):
                 select(Job).order_by(Job.created_at.desc()).limit(limit)
             ).scalars()
         )
+
+    def list_active_by_type(self, job_type: str) -> list[Job]:
+        return list(
+            self.db.execute(
+                select(Job)
+                .where(
+                    Job.type == job_type,
+                    Job.status.in_(("queued", "running", "cancel_requested", "retrying")),
+                )
+                .order_by(Job.created_at.desc())
+            ).scalars()
+        )

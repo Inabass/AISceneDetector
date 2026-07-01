@@ -25,17 +25,23 @@ class FeatureRepository(Repository[Feature]):
             .limit(1)
         ).scalar_one_or_none()
 
-    def list_succeeded_training_features(self) -> list[tuple[Feature, TrainingVideo]]:
+    def list_succeeded_training_features(
+        self,
+        feature_ids: list[int] | None = None,
+    ) -> list[tuple[Feature, TrainingVideo]]:
+        conditions = [
+            Feature.kind == "training_frame_features",
+            Feature.status == "succeeded",
+            TrainingVideo.validation_status == "valid",
+            TrainingVideo.processing_status == "READY",
+        ]
+        if feature_ids is not None:
+            conditions.append(Feature.id.in_(feature_ids))
         return list(
             self.db.execute(
                 select(Feature, TrainingVideo)
                 .join(TrainingVideo, TrainingVideo.id == Feature.source_video_id)
-                .where(
-                    Feature.kind == "training_frame_features",
-                    Feature.status == "succeeded",
-                    TrainingVideo.validation_status == "valid",
-                    TrainingVideo.processing_status == "READY",
-                )
+                .where(*conditions)
                 .order_by(TrainingVideo.label_type.asc(), Feature.created_at.desc())
             ).all()
         )

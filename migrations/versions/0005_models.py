@@ -48,7 +48,6 @@ def upgrade() -> None:
             sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-            sa.ForeignKeyConstraint(["active_version_id"], ["model_versions.id"]),
             sa.PrimaryKeyConstraint("id"),
         )
     if not _table_exists("model_versions"):

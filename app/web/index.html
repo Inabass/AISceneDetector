@@ -227,7 +227,21 @@
       </section>
 
       <section>
-        <h2>4. 出力とプレビュー</h2>
+        <h2>4. フィードバック</h2>
+        <div class="row">
+          <label>フィードバック確認対象の検出結果ID
+            <input id="feedbackDetectionId" type="number" min="1" value="1">
+          </label>
+        </div>
+        <div class="actions">
+          <button class="secondary" id="loadFeedback">フィードバック一覧を更新</button>
+        </div>
+        <div class="result" id="feedbackResult">シーン一覧のボタンから正しい/誤検出/無視を記録できます。</div>
+        <div class="list" id="feedbackList"></div>
+      </section>
+
+      <section>
+        <h2>5. 出力とプレビュー</h2>
         <div class="row">
           <label>検出結果ID
             <input id="exportDetectionId" type="number" min="1" value="1">
@@ -405,7 +419,7 @@
             <h3>検出ID ${item.id} / ${item.status}</h3>
             <div class="meta">${escapeHtml(item.source_filename)} / model_version_id=${item.model_version_id} / segments=${item.summary?.segment_count ?? "-"}</div>
             <div class="actions">
-              <button class="secondary" data-detection="${item.id}">この検出を選択</button>
+          <button class="secondary" data-detection="${item.id}">この検出を選択</button>
             </div>
           </div>
         `).join("");
@@ -413,6 +427,7 @@
           button.addEventListener("click", () => {
             state.detectionId = Number(button.dataset.detection);
             $("exportDetectionId").value = state.detectionId;
+            $("feedbackDetectionId").value = state.detectionId;
             loadSegments();
           });
         });
@@ -436,8 +451,22 @@
               ${segment.padded_start_sec.toFixed(3)}s - ${segment.padded_end_sec.toFixed(3)}s /
               score=${segment.score.toFixed(4)} / max=${segment.max_score.toFixed(4)}
             </div>
+            <div class="actions">
+              <button class="secondary" data-feedback-label="positive" data-feedback-segment="${segment.id}" data-feedback-detection="${segment.detection_result_id}">正しい</button>
+              <button class="secondary" data-feedback-label="negative" data-feedback-segment="${segment.id}" data-feedback-detection="${segment.detection_result_id}">誤検出</button>
+              <button class="secondary" data-feedback-label="ignore" data-feedback-segment="${segment.id}" data-feedback-detection="${segment.detection_result_id}">無視</button>
+            </div>
           </div>
         `).join("") || "<p>シーン区間はありません。</p>";
+        $("segmentsList").querySelectorAll("[data-feedback-label]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            await createFeedback(
+              Number(button.dataset.feedbackDetection),
+              Number(button.dataset.feedbackSegment),
+              button.dataset.feedbackLabel,
+            );
+          });
+        });
       }
 
       $("loadSegments").addEventListener("click", async () => {
@@ -445,6 +474,50 @@
           await loadSegments();
         } catch (error) {
           print("detectionResult", error.message);
+        }
+      });
+
+      async function createFeedback(detectionId, segmentId, label) {
+        try {
+          const data = await api("/api/v1/feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              detection_id: detectionId,
+              segment_id: segmentId,
+              label,
+              source: "web_ui",
+            }),
+          });
+          $("feedbackDetectionId").value = detectionId;
+          print("feedbackResult", data);
+          await loadFeedback();
+        } catch (error) {
+          print("feedbackResult", error.message);
+        }
+      }
+
+      async function loadFeedback() {
+        const detectionId = Number($("feedbackDetectionId").value);
+        const feedback = await api(`/api/v1/feedback?detection_id=${detectionId}`);
+        $("feedbackList").innerHTML = feedback.map((item) => `
+          <div class="item">
+            <h3>Feedback ${item.id} / ${item.label}</h3>
+            <div class="meta">
+              detection_id=${item.detection_result_id} / segment_id=${item.segment_id ?? "-"} /
+              model_version_id=${item.model_version_id}<br>
+              ${item.start_sec !== null ? `${item.start_sec.toFixed(3)}s - ${item.end_sec.toFixed(3)}s` : "-"} /
+              source=${escapeHtml(item.source)}
+            </div>
+          </div>
+        `).join("") || "<p>フィードバックはまだありません。</p>";
+      }
+
+      $("loadFeedback").addEventListener("click", async () => {
+        try {
+          await loadFeedback();
+        } catch (error) {
+          print("feedbackResult", error.message);
         }
       });
 
@@ -496,6 +569,7 @@
       refreshSystemStatus();
       loadDetections().catch(() => {});
       loadExports().catch(() => {});
+      loadFeedback().catch(() => {});
     </script>
   </body>
 </html>

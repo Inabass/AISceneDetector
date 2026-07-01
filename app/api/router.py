@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.detections import router as detections_router
 from app.api.v1.exports import router as exports_router
+from app.api.v1.feedback import router as feedback_router
 from app.api.v1.features import router as features_router
 from app.api.v1.gpu import router as gpu_router
 from app.api.v1.health import router as health_router
@@ -13,6 +14,7 @@ from app.api.v1.training import router as training_router
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(detections_router)
 api_router.include_router(exports_router)
+api_router.include_router(feedback_router)
 api_router.include_router(features_router)
 api_router.include_router(gpu_router)
 api_router.include_router(health_router)

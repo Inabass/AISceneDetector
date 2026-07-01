@@ -154,6 +154,7 @@ class DetectionService:
         job = job_service._require_job(job_id)
         params = json.loads(job.params_json or "{}")
         timeline_path: Path | None = None
+        temp_timeline_path: Path | None = None
         try:
             job_service.start(job_id, "loading_detection")
             detection = self.get_detection(int(params["detection_id"]))
@@ -170,6 +171,7 @@ class DetectionService:
 
             video_path = self.storage.resolve_storage_path(detection.source_video_path)
             timeline_path = self._timeline_output_path(detection.id, job_id)
+            temp_timeline_path = timeline_path.with_suffix(".json.tmp")
             timeline_path.parent.mkdir(parents=True, exist_ok=True)
             extractor = OpenCLIPFeatureExtractor(self.settings)
             if extractor.metadata() != model_payload["extractor"]:
@@ -191,19 +193,20 @@ class DetectionService:
             sample_batch: list[tuple[int, float]] = []
             current_batch_size = batch_size
 
-            with timeline_path.open("w", encoding="utf-8") as output:
-                self._write_timeline_header(
-                    output,
-                    detection,
-                    model_version,
-                    threshold,
-                    margin,
-                    interval,
-                )
+            header = self._timeline_header(
+                detection,
+                model_version,
+                threshold,
+                margin,
+                interval,
+            )
+            with _TimelineWriter(temp_timeline_path, header) as writer:
                 job_service.update_progress(job_id, 5, "sampling_frames")
                 for sample in sampler.sample(video_path, interval):
                     if job_service.is_cancel_requested(job_id):
-                        self._finish_timeline(output, stats.summary("cancelled"))
+                        summary = stats.summary("cancelled")
+                        writer.finish(summary)
+                        temp_timeline_path.replace(timeline_path)
                         self._mark_detection_cancelled(detection, timeline_path, stats)
                         job_service.cancel(
                             job_id,
@@ -225,7 +228,7 @@ class DetectionService:
                             model_payload,
                             threshold,
                             margin,
-                            output,
+                            writer,
                             stats,
                             job_id,
                             job_service,
@@ -233,7 +236,14 @@ class DetectionService:
                         )
                         frame_batch = []
                         sample_batch = []
-                        job_service.update_progress(job_id, 50, "running_inference")
+                        job_service.update_progress(
+                            job_id,
+                            self._progress_from_timestamp(
+                                sample.timestamp_sec,
+                                detection.duration,
+                            ),
+                            "running_inference",
+                        )
                 if frame_batch:
                     current_batch_size = self._process_detection_batch(
                         extractor,
@@ -242,14 +252,15 @@ class DetectionService:
                         model_payload,
                         threshold,
                         margin,
-                        output,
+                        writer,
                         stats,
                         job_id,
                         job_service,
                         current_batch_size,
                     )
                 summary = stats.summary("succeeded")
-                self._finish_timeline(output, summary)
+                writer.finish(summary)
+            temp_timeline_path.replace(timeline_path)
 
             with UnitOfWork(self.db):
                 detection.status = "succeeded"
@@ -265,6 +276,8 @@ class DetectionService:
                 },
             )
         except Exception as exc:
+            if temp_timeline_path is not None and temp_timeline_path.exists():
+                temp_timeline_path.unlink()
             code = getattr(exc, "error_code", exc.__class__.__name__)
             message = getattr(exc, "message", str(exc))
             try:
@@ -275,8 +288,6 @@ class DetectionService:
                         {"status": "failed", "error": message},
                         ensure_ascii=True,
                     )
-                    if timeline_path and timeline_path.exists():
-                        detection.timeline_path = self.storage.relative_path(timeline_path)
             except Exception:
                 pass
             job_service.fail(job_id, code, message)
@@ -415,7 +426,7 @@ class DetectionService:
         model_payload: dict[str, Any],
         threshold: float,
         margin: float,
-        output: TextIO,
+        writer: "_TimelineWriter",
         stats: "_DetectionStats",
         job_id: int,
         job_service: JobService,
@@ -439,25 +450,30 @@ class DetectionService:
         for index, (frame_index, timestamp_sec) in enumerate(sample_batch):
             positive_score = float(positive_scores[index])
             negative_score = float(negative_scores[index]) if negative_centroid is not None else None
-            confidence = (
-                positive_score - max(0.0, float(negative_score or 0.0) - positive_score)
-                if negative_centroid is not None
-                else positive_score
+            margin_score = (
+                positive_score - negative_score
+                if negative_score is not None
+                else None
             )
+            confidence = self._clamp01(positive_score)
             is_positive = positive_score >= threshold and (
-                negative_score is None or positive_score - negative_score >= margin
+                margin_score is None or margin_score >= margin
             )
             point = {
                 "frame_index": frame_index,
                 "timestamp_sec": timestamp_sec,
                 "positive_score": positive_score,
                 "negative_score": negative_score,
+                "margin_score": margin_score,
+                "matcher_score": positive_score,
                 "confidence": confidence,
                 "threshold": threshold,
+                "margin": margin,
+                "score_schema": "cosine_centroid_v1",
                 "is_positive": is_positive,
             }
             stats.add(point)
-            self._write_timeline_point(output, point, stats.processed_frames > 1)
+            writer.write_point(point)
         return current_batch_size
 
     def _encode_with_batch_reduction(
@@ -493,41 +509,41 @@ class DetectionService:
                     )
         return np.concatenate(outputs, axis=0), current_batch_size
 
-    def _write_timeline_header(
+    def _timeline_header(
         self,
-        output: TextIO,
         detection: DetectionResult,
         model_version: ModelVersion,
         threshold: float,
         margin: float,
         interval: float,
-    ) -> None:
-        header = {
+    ) -> dict[str, object]:
+        return {
             "version": 1,
             "detection_id": detection.id,
             "model_version_id": model_version.id,
             "threshold": threshold,
             "margin": margin,
             "frame_interval_sec": interval,
+            "score_schema": "cosine_centroid_v1",
+            "score_fields": {
+                "positive_score": "Cosine similarity against the positive centroid.",
+                "negative_score": "Cosine similarity against the negative centroid, or null.",
+                "margin_score": "positive_score - negative_score, or null.",
+                "confidence": "positive_score clipped to the 0.0-1.0 range.",
+            },
         }
-        output.write(json.dumps({**header, "points": []}, ensure_ascii=True)[:-2])
 
-    def _write_timeline_point(
+    def _progress_from_timestamp(
         self,
-        output: TextIO,
-        point: dict[str, object],
-        needs_comma: bool,
-    ) -> None:
-        if needs_comma:
-            output.write(",")
-        output.write(json.dumps(point, ensure_ascii=True))
+        timestamp_sec: float,
+        duration: float | None,
+    ) -> int:
+        if not duration or duration <= 0:
+            return 50
+        return max(5, min(95, int((timestamp_sec / duration) * 90) + 5))
 
-    def _finish_timeline(self, output: TextIO, summary: dict[str, object]) -> None:
-        output.write(
-            "],\"summary\":"
-            + json.dumps(summary, ensure_ascii=True)
-            + "}"
-        )
+    def _clamp01(self, value: float) -> float:
+        return max(0.0, min(1.0, value))
 
     def _mark_detection_cancelled(
         self,
@@ -573,6 +589,55 @@ class _DetectionStats:
             "max_confidence": self.max_confidence,
             "average_confidence": average_confidence,
         }
+
+
+class _TimelineWriter:
+    def __init__(self, path: Path, header: dict[str, object]) -> None:
+        self.path = path
+        self.header = header
+        self.output: TextIO | None = None
+        self.has_points = False
+        self.finished = False
+
+    def __enter__(self) -> "_TimelineWriter":
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.output = self.path.open("w", encoding="utf-8")
+        self.output.write("{")
+        for index, (key, value) in enumerate(self.header.items()):
+            if index:
+                self.output.write(",")
+            self.output.write(json.dumps(str(key), ensure_ascii=True))
+            self.output.write(":")
+            self.output.write(json.dumps(value, ensure_ascii=True))
+        self.output.write(',"points":[')
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        if self.output is None:
+            return
+        if exc_type is None and not self.finished:
+            self.finish({"status": "failed", "error": "Timeline was not finalized."})
+        self.output.close()
+
+    def write_point(self, point: dict[str, object]) -> None:
+        if self.output is None:
+            raise RuntimeError("Timeline writer is not open.")
+        if self.has_points:
+            self.output.write(",")
+        self.output.write(json.dumps(point, ensure_ascii=True))
+        self.has_points = True
+
+    def finish(self, summary: dict[str, object]) -> None:
+        if self.output is None:
+            raise RuntimeError("Timeline writer is not open.")
+        if self.finished:
+            return
+        self.output.write(
+            "],\"summary\":"
+            + json.dumps(summary, ensure_ascii=True)
+            + "}"
+        )
+        self.finished = True
 
 
 def run_detection_job(job_id: int) -> None:

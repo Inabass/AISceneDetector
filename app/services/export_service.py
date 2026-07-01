@@ -69,8 +69,11 @@ class ExportService:
                         mode=mode,
                         status="queued",
                         output_path=None,
+                        thumbnail_path=None,
+                        preview_path=None,
                         ffmpeg_args_json=None,
                         error_message=None,
+                        asset_error_message=None,
                         job_id=job.id,
                     )
                 )
@@ -126,10 +129,53 @@ class ExportService:
                         export.status = "running"
                         export.ffmpeg_args_json = json.dumps(command, ensure_ascii=True)
                     self._run_ffmpeg(command)
+                    asset_error_message = None
+                    thumbnail_path = None
+                    preview_path = None
+                    try:
+                        thumbnail_path = self._thumbnail_path(detection, segment)
+                        preview_path = self._preview_path(detection, segment)
+                        thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
+                        preview_path.parent.mkdir(parents=True, exist_ok=True)
+                        self._run_ffmpeg(
+                            self._thumbnail_command(
+                                source_path=source_path,
+                                output_path=thumbnail_path,
+                                timestamp_sec=segment.representative_timestamp_sec,
+                            )
+                        )
+                        self._run_ffmpeg(
+                            self._preview_command(
+                                source_path=source_path,
+                                output_path=preview_path,
+                                start_sec=segment.padded_start_sec,
+                                end_sec=segment.padded_end_sec,
+                            )
+                        )
+                    except Exception as exc:
+                        asset_error_message = getattr(exc, "message", str(exc))
+                        job_service.log(
+                            job_id,
+                            "warning",
+                            "export_assets",
+                            asset_error_message,
+                            {"export_id": export.id, "segment_id": export.segment_id},
+                        )
                     with UnitOfWork(self.db):
                         export.status = "succeeded"
                         export.output_path = self.storage.relative_path(output_path)
+                        export.thumbnail_path = (
+                            self.storage.relative_path(thumbnail_path)
+                            if thumbnail_path and thumbnail_path.exists()
+                            else None
+                        )
+                        export.preview_path = (
+                            self.storage.relative_path(preview_path)
+                            if preview_path and preview_path.exists()
+                            else None
+                        )
                         export.error_message = None
+                        export.asset_error_message = asset_error_message
                     completed += 1
                 except Exception as exc:
                     failed += 1
@@ -217,6 +263,28 @@ class ExportService:
             / filename
         )
 
+    def _thumbnail_path(
+        self,
+        detection: DetectionResult,
+        segment: DetectionSegment,
+    ) -> Path:
+        source_stem = self.storage.safe_filename(Path(detection.source_filename).stem)
+        filename = f"{source_stem}_scene_{segment.segment_index:03d}.jpg"
+        return self.storage.ensure_under_root(
+            self.settings.thumbnails_dir / f"detection_{detection.id}" / filename
+        )
+
+    def _preview_path(
+        self,
+        detection: DetectionResult,
+        segment: DetectionSegment,
+    ) -> Path:
+        source_stem = self.storage.safe_filename(Path(detection.source_filename).stem)
+        filename = f"{source_stem}_scene_{segment.segment_index:03d}_preview.mp4"
+        return self.storage.ensure_under_root(
+            self.settings.previews_dir / f"detection_{detection.id}" / filename
+        )
+
     def _ffmpeg_command(
         self,
         source_path: Path,
@@ -262,6 +330,73 @@ class ExportService:
             )
         command.append(str(output_path))
         return command
+
+    def _thumbnail_command(
+        self,
+        source_path: Path,
+        output_path: Path,
+        timestamp_sec: float,
+    ) -> list[str]:
+        ffmpeg_status = VideoToolsService(self.settings).ffmpeg_status()
+        if not ffmpeg_status.resolved_path:
+            raise ValidationAppError(
+                message="ffmpeg was not found.",
+                suggested_action="Install ffmpeg or configure AISD_FFMPEG_PATH.",
+            )
+        return [
+            ffmpeg_status.resolved_path,
+            "-hide_banner",
+            "-y",
+            "-ss",
+            f"{max(0.0, timestamp_sec):.3f}",
+            "-i",
+            str(source_path),
+            "-frames:v",
+            "1",
+            "-vf",
+            "scale=min(640\\,iw):-2",
+            "-q:v",
+            "3",
+            str(output_path),
+        ]
+
+    def _preview_command(
+        self,
+        source_path: Path,
+        output_path: Path,
+        start_sec: float,
+        end_sec: float,
+    ) -> list[str]:
+        ffmpeg_status = VideoToolsService(self.settings).ffmpeg_status()
+        if not ffmpeg_status.resolved_path:
+            raise ValidationAppError(
+                message="ffmpeg was not found.",
+                suggested_action="Install ffmpeg or configure AISD_FFMPEG_PATH.",
+            )
+        duration = max(0.01, end_sec - start_sec)
+        return [
+            ffmpeg_status.resolved_path,
+            "-hide_banner",
+            "-y",
+            "-ss",
+            f"{max(0.0, start_sec):.3f}",
+            "-i",
+            str(source_path),
+            "-t",
+            f"{duration:.3f}",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "24",
+            "-vf",
+            "scale=min(960\\,iw):-2",
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ]
 
     def _run_ffmpeg(self, command: list[str]) -> None:
         completed = subprocess.run(

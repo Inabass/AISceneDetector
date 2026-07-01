@@ -80,10 +80,22 @@ def to_export_data(export: Export) -> ExportData:
         mode=export.mode,
         status=export.status,
         output_path=export.output_path,
+        output_url=to_media_url(export.output_path),
+        thumbnail_path=export.thumbnail_path,
+        thumbnail_url=to_media_url(export.thumbnail_path),
+        preview_path=export.preview_path,
+        preview_url=to_media_url(export.preview_path),
         ffmpeg_args=json.loads(export.ffmpeg_args_json) if export.ffmpeg_args_json else None,
         error_message=export.error_message,
+        asset_error_message=export.asset_error_message,
         job_id=export.job_id,
     )
+
+
+def to_media_url(path: str | None) -> str | None:
+    if not path:
+        return None
+    return f"/media/{path}"
 
 
 def to_job_data(job: Job | None) -> JobData:

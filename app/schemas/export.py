@@ -17,8 +17,14 @@ class ExportData(BaseModel):
     mode: str
     status: str
     output_path: str | None
+    output_url: str | None
+    thumbnail_path: str | None
+    thumbnail_url: str | None
+    preview_path: str | None
+    preview_url: str | None
     ffmpeg_args: list[str] | None
     error_message: str | None
+    asset_error_message: str | None
     job_id: int | None
 
 

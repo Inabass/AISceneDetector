@@ -8,62 +8,147 @@
       :root {
         color-scheme: light;
         font-family: "Yu Gothic", "Meiryo", Arial, Helvetica, sans-serif;
-        background: #f7f7f4;
+        background: #f5f6f7;
         color: #202124;
       }
-      body {
-        margin: 0;
-      }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
       main {
-        max-width: 1040px;
+        max-width: 1180px;
         margin: 0 auto;
-        padding: 32px 24px;
+        padding: 28px 20px 48px;
       }
       header {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
-        gap: 16px;
-        border-bottom: 1px solid #d8d8d2;
-        padding-bottom: 20px;
+        gap: 20px;
+        padding-bottom: 18px;
+        border-bottom: 1px solid #d9dde3;
       }
-      h1 {
-        font-size: 28px;
-        line-height: 1.2;
-        margin: 0;
+      h1 { font-size: 28px; margin: 0 0 6px; }
+      h2 { font-size: 18px; margin: 0 0 12px; }
+      h3 { font-size: 14px; margin: 0 0 8px; }
+      p { color: #5f6368; line-height: 1.5; margin: 0; }
+      button, input, select, textarea {
+        font: inherit;
+      }
+      button {
+        border: 1px solid #1b5e46;
+        background: #1f7a5a;
+        color: #ffffff;
+        border-radius: 6px;
+        padding: 8px 12px;
+        cursor: pointer;
+        min-height: 38px;
+      }
+      button.secondary {
+        border-color: #c3c8cf;
+        background: #ffffff;
+        color: #202124;
+      }
+      button:disabled {
+        opacity: .55;
+        cursor: default;
+      }
+      input, select, textarea {
+        width: 100%;
+        border: 1px solid #cbd1d8;
+        border-radius: 6px;
+        padding: 8px 10px;
+        background: #ffffff;
+        color: #202124;
+      }
+      label {
+        display: grid;
+        gap: 6px;
+        color: #3c4043;
+        font-size: 13px;
+      }
+      section {
+        margin-top: 18px;
+        padding: 18px;
+        border: 1px solid #d9dde3;
+        border-radius: 8px;
+        background: #ffffff;
       }
       .status {
-        border: 1px solid #c7d7c3;
-        background: #eef6eb;
+        min-width: 260px;
+        border: 1px solid #c6d8ce;
+        background: #edf7f1;
         border-radius: 8px;
         padding: 12px 14px;
-        min-width: 180px;
+        font-size: 13px;
+        line-height: 1.55;
       }
       .grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
         gap: 14px;
-        margin-top: 24px;
       }
-      section {
-        border: 1px solid #d8d8d2;
-        border-radius: 8px;
-        background: #ffffff;
-        padding: 16px;
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: end;
+        flex-wrap: wrap;
       }
-      h2 {
-        font-size: 16px;
-        margin: 0 0 8px;
+      .row > label { flex: 1 1 180px; }
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 12px;
       }
-      p {
+      .result {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 6px;
+        background: #f1f3f4;
+        color: #3c4043;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        min-height: 38px;
+      }
+      .list {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .item {
+        border-top: 1px solid #eceff3;
+        padding-top: 10px;
+      }
+      .item:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .meta {
         color: #5f6368;
+        font-size: 12px;
         line-height: 1.5;
-        margin: 0;
+        overflow-wrap: anywhere;
       }
-      code {
-        background: #eeeeea;
-        border-radius: 4px;
-        padding: 2px 5px;
+      .media {
+        display: grid;
+        grid-template-columns: minmax(120px, 220px) minmax(180px, 1fr);
+        gap: 10px;
+        margin-top: 8px;
+        align-items: start;
+      }
+      img, video {
+        width: 100%;
+        max-height: 220px;
+        border: 1px solid #d9dde3;
+        border-radius: 6px;
+        background: #111;
+      }
+      a { color: #0b57d0; }
+      @media (max-width: 720px) {
+        header { display: block; }
+        .status { margin-top: 14px; min-width: 0; }
+        .media { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -72,40 +157,345 @@
       <header>
         <div>
           <h1>AI Scene Detector</h1>
-          <p>学習動画、特徴量抽出、モデル生成の基盤が起動しています。</p>
+          <p>学習、特徴量抽出、モデル生成、検出、シーン出力をこの画面から実行します。</p>
         </div>
-        <div class="status" id="health">API状態を確認中...</div>
+        <div class="status" id="systemStatus">状態を確認中...</div>
       </header>
-      <div class="grid">
-        <section>
-          <h2>学習</h2>
-          <p>学習動画を登録し、OpenCLIP特徴量を生成します。</p>
-        </section>
-        <section>
-          <h2>検出</h2>
-          <p>対象動画をアップロードし、モデルの有効バージョンでフレーム推論します。</p>
-        </section>
-        <section>
-          <h2>モデル</h2>
-          <p>モデルバージョンは変更不可として保存し、有効バージョンを管理します。</p>
-        </section>
-        <section>
-          <h2>設定</h2>
-          <p>保存先、ffmpeg、CUDA、バッチサイズなどの既定値を一元管理します。</p>
-        </section>
-      </div>
+
+      <section>
+        <h2>1. 学習動画</h2>
+        <div class="grid">
+          <label>ラベル
+            <select id="trainingLabel">
+              <option value="positive">positive</option>
+              <option value="negative">negative</option>
+            </select>
+          </label>
+          <label>学習動画
+            <input id="trainingFile" type="file" accept="video/*">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="uploadTraining">学習動画を登録</button>
+          <button class="secondary" id="extractFeatures">特徴量を生成</button>
+        </div>
+        <div class="result" id="trainingResult">未実行</div>
+      </section>
+
+      <section>
+        <h2>2. モデル</h2>
+        <div class="grid">
+          <label>モデル名
+            <input id="modelName" value="sample-model">
+          </label>
+          <label>説明
+            <input id="modelDescription" value="UIから作成">
+          </label>
+          <label>モデルID
+            <input id="modelId" type="number" min="1" value="1">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="createModel">モデルを作成</button>
+          <button class="secondary" id="trainModel">モデルを学習</button>
+          <button class="secondary" id="loadModel">モデルを確認</button>
+        </div>
+        <div class="result" id="modelResult">未実行</div>
+      </section>
+
+      <section>
+        <h2>3. 検出</h2>
+        <div class="grid">
+          <label>対象動画
+            <input id="detectionFile" type="file" accept="video/*">
+          </label>
+          <label>frame_interval_sec
+            <input id="frameInterval" type="number" min="0.1" step="0.1" value="1.0">
+          </label>
+          <label>batch_size
+            <input id="batchSize" type="number" min="1" step="1" value="16">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="runDetection">検出を開始</button>
+          <button class="secondary" id="loadDetections">検出結果を更新</button>
+          <button class="secondary" id="loadSegments">選択中のシーンを表示</button>
+        </div>
+        <div class="result" id="detectionResult">未実行</div>
+        <div class="list" id="detectionsList"></div>
+        <div class="list" id="segmentsList"></div>
+      </section>
+
+      <section>
+        <h2>4. 出力とプレビュー</h2>
+        <div class="row">
+          <label>検出結果ID
+            <input id="exportDetectionId" type="number" min="1" value="1">
+          </label>
+          <label>mode
+            <select id="exportMode">
+              <option value="copy">copy</option>
+              <option value="reencode">reencode</option>
+            </select>
+          </label>
+        </div>
+        <div class="actions">
+          <button id="createExport">シーンを出力</button>
+          <button class="secondary" id="loadExports">出力一覧を更新</button>
+        </div>
+        <div class="result" id="exportResult">未実行</div>
+        <div class="list" id="exportsList"></div>
+      </section>
     </main>
+
     <script>
-      fetch("/api/v1/health")
-        .then((response) => response.json())
-        .then((payload) => {
-          const data = payload.data;
-          document.getElementById("health").textContent =
-            `API ${data.status.toUpperCase()} / DB ${data.database.toUpperCase()}`;
-        })
-        .catch(() => {
-          document.getElementById("health").textContent = "APIに接続できません";
+      const state = {
+        trainingVideoId: null,
+        detectionId: null,
+        lastJobId: null,
+      };
+
+      const $ = (id) => document.getElementById(id);
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function print(id, value) {
+        $(id).textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+      }
+
+      async function api(path, options = {}) {
+        const response = await fetch(path, options);
+        const payload = await response.json();
+        if (!response.ok || payload.error) {
+          throw new Error(JSON.stringify(payload.error || payload, null, 2));
+        }
+        return payload.data;
+      }
+
+      async function refreshSystemStatus() {
+        try {
+          const [health, gpu, tools] = await Promise.all([
+            api("/api/v1/health"),
+            api("/api/v1/gpu"),
+            api("/api/v1/system/video-tools"),
+          ]);
+          const ffmpeg = tools.find((tool) => tool.name === "ffmpeg");
+          const ffprobe = tools.find((tool) => tool.name === "ffprobe");
+          $("systemStatus").textContent =
+            `API ${health.status} / DB ${health.database}\n` +
+            `CUDA ${gpu.cuda_available ? "利用可" : "不可"} / ${gpu.device_name || "-"}\n` +
+            `ffmpeg ${ffmpeg?.available ? "OK" : "NG"} / ffprobe ${ffprobe?.available ? "OK" : "NG"}`;
+        } catch (error) {
+          $("systemStatus").textContent = `状態確認に失敗しました\n${error.message}`;
+        }
+      }
+
+      async function pollJob(jobId, targetId) {
+        state.lastJobId = jobId;
+        for (;;) {
+          const job = await api(`/api/v1/jobs/${jobId}`);
+          print(targetId, job);
+          if (["succeeded", "failed", "cancelled"].includes(job.status)) {
+            return job;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+      }
+
+      $("uploadTraining").addEventListener("click", async () => {
+        try {
+          const file = $("trainingFile").files[0];
+          if (!file) throw new Error("学習動画を選択してください。");
+          const form = new FormData();
+          form.append("label_type", $("trainingLabel").value);
+          form.append("file", file);
+          const data = await api("/api/v1/training/videos", { method: "POST", body: form });
+          state.trainingVideoId = data.id;
+          print("trainingResult", data);
+        } catch (error) {
+          print("trainingResult", error.message);
+        }
+      });
+
+      $("extractFeatures").addEventListener("click", async () => {
+        try {
+          if (!state.trainingVideoId) throw new Error("先に学習動画を登録してください。");
+          const data = await api(`/api/v1/training/videos/${state.trainingVideoId}/features`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ frame_interval_sec: 1.0, batch_size: 16 }),
+          });
+          await pollJob(data.id, "trainingResult");
+        } catch (error) {
+          print("trainingResult", error.message);
+        }
+      });
+
+      $("createModel").addEventListener("click", async () => {
+        try {
+          const data = await api("/api/v1/models", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: $("modelName").value,
+              description: $("modelDescription").value,
+            }),
+          });
+          $("modelId").value = data.id;
+          print("modelResult", data);
+        } catch (error) {
+          print("modelResult", error.message);
+        }
+      });
+
+      $("trainModel").addEventListener("click", async () => {
+        try {
+          const modelId = Number($("modelId").value);
+          const data = await api(`/api/v1/models/${modelId}/train`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ threshold: null }),
+          });
+          await pollJob(data.id, "modelResult");
+          const model = await api(`/api/v1/models/${modelId}`);
+          print("modelResult", model);
+        } catch (error) {
+          print("modelResult", error.message);
+        }
+      });
+
+      $("loadModel").addEventListener("click", async () => {
+        try {
+          const data = await api(`/api/v1/models/${Number($("modelId").value)}`);
+          print("modelResult", data);
+        } catch (error) {
+          print("modelResult", error.message);
+        }
+      });
+
+      $("runDetection").addEventListener("click", async () => {
+        try {
+          const file = $("detectionFile").files[0];
+          if (!file) throw new Error("対象動画を選択してください。");
+          const form = new FormData();
+          form.append("model_id", $("modelId").value);
+          form.append("frame_interval_sec", $("frameInterval").value);
+          form.append("batch_size", $("batchSize").value);
+          form.append("file", file);
+          const data = await api("/api/v1/detections", { method: "POST", body: form });
+          const job = await pollJob(data.id, "detectionResult");
+          await loadDetections();
+          print("detectionResult", job);
+        } catch (error) {
+          print("detectionResult", error.message);
+        }
+      });
+
+      async function loadDetections() {
+        const detections = await api("/api/v1/detections");
+        $("detectionsList").innerHTML = detections.map((item) => `
+          <div class="item">
+            <h3>検出ID ${item.id} / ${item.status}</h3>
+            <div class="meta">${escapeHtml(item.source_filename)} / model_version_id=${item.model_version_id} / segments=${item.summary?.segment_count ?? "-"}</div>
+            <div class="actions">
+              <button class="secondary" data-detection="${item.id}">この検出を選択</button>
+            </div>
+          </div>
+        `).join("");
+        $("detectionsList").querySelectorAll("[data-detection]").forEach((button) => {
+          button.addEventListener("click", () => {
+            state.detectionId = Number(button.dataset.detection);
+            $("exportDetectionId").value = state.detectionId;
+            loadSegments();
+          });
         });
+      }
+
+      $("loadDetections").addEventListener("click", async () => {
+        try {
+          await loadDetections();
+        } catch (error) {
+          print("detectionResult", error.message);
+        }
+      });
+
+      async function loadSegments() {
+        const detectionId = state.detectionId || Number($("exportDetectionId").value);
+        const segments = await api(`/api/v1/detections/${detectionId}/segments`);
+        $("segmentsList").innerHTML = segments.map((segment) => `
+          <div class="item">
+            <h3>シーン ${segment.segment_index}</h3>
+            <div class="meta">
+              ${segment.padded_start_sec.toFixed(3)}s - ${segment.padded_end_sec.toFixed(3)}s /
+              score=${segment.score.toFixed(4)} / max=${segment.max_score.toFixed(4)}
+            </div>
+          </div>
+        `).join("") || "<p>シーン区間はありません。</p>";
+      }
+
+      $("loadSegments").addEventListener("click", async () => {
+        try {
+          await loadSegments();
+        } catch (error) {
+          print("detectionResult", error.message);
+        }
+      });
+
+      $("createExport").addEventListener("click", async () => {
+        try {
+          const data = await api("/api/v1/exports", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              detection_id: Number($("exportDetectionId").value),
+              mode: $("exportMode").value,
+            }),
+          });
+          await pollJob(data.id, "exportResult");
+          await loadExports();
+        } catch (error) {
+          print("exportResult", error.message);
+        }
+      });
+
+      async function loadExports() {
+        const exports = await api("/api/v1/exports");
+        $("exportsList").innerHTML = exports.map((item) => `
+          <div class="item">
+            <h3>Export ${item.id} / ${item.status} / ${item.mode}</h3>
+            <div class="meta">
+              detection_id=${item.detection_result_id} / segment_id=${item.segment_id ?? "-"}<br>
+              ${escapeHtml(item.output_path || "-")}${item.asset_error_message ? `<br>preview error: ${escapeHtml(item.asset_error_message)}` : ""}
+            </div>
+            <div class="media">
+              ${item.thumbnail_url ? `<a href="${escapeHtml(item.thumbnail_url)}" target="_blank"><img src="${escapeHtml(item.thumbnail_url)}" alt="サムネイル"></a>` : "<p>サムネイルなし</p>"}
+              ${item.preview_url ? `<video src="${escapeHtml(item.preview_url)}" controls preload="metadata"></video>` : "<p>プレビューなし</p>"}
+            </div>
+            <div class="actions">
+              ${item.output_url ? `<a href="${escapeHtml(item.output_url)}" target="_blank">出力動画を開く</a>` : ""}
+            </div>
+          </div>
+        `).join("") || "<p>出力はまだありません。</p>";
+      }
+
+      $("loadExports").addEventListener("click", async () => {
+        try {
+          await loadExports();
+        } catch (error) {
+          print("exportResult", error.message);
+        }
+      });
+
+      refreshSystemStatus();
+      loadDetections().catch(() => {});
+      loadExports().catch(() => {});
     </script>
   </body>
 </html>

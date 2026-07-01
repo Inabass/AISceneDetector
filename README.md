@@ -209,9 +209,17 @@ AISD_DEFAULT_MIN_SEGMENT_DURATION_SEC
 AISD_DEFAULT_MAX_SEGMENT_DURATION_SEC
 ```
 
-## 動画出力
+## 動画出力・プレビュー
 
 検出済みシーン区間をffmpegで切り出します。既定は高速な `copy` modeです。正確な境界が必要な場合は `reencode` modeを使います。
+
+Exportジョブは、切り出し動画に加えて確認用のサムネイルと軽量プレビューも生成します。
+
+```text
+data\outputs\exports\...
+data\thumbnails\detection_<ID>\...
+data\previews\detection_<ID>\...
+```
 
 全シーン区間を出力:
 
@@ -236,7 +244,25 @@ Invoke-RestMethod -Method Post `
 ```powershell
 curl.exe "http://127.0.0.1:8000/api/v1/exports"
 dir data\outputs\exports /s
+dir data\thumbnails /s
+dir data\previews /s
 ```
+
+APIレスポンスには、保存先の相対パスとブラウザ確認用URLが含まれます。
+
+```text
+output_path / output_url
+thumbnail_path / thumbnail_url
+preview_path / preview_url
+```
+
+ローカルUIでも確認できます。
+
+```text
+http://127.0.0.1:8000/
+```
+
+UIでは学習動画登録、特徴量生成、モデル作成、モデル学習、検出、シーン区間表示、Export、サムネイル/プレビュー確認まで実行できます。
 
 ## ロールバック
 

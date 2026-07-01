@@ -80,3 +80,20 @@ def index() -> FileResponse:
 
 
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+settings = get_settings()
+settings.ensure_data_directories()
+app.mount(
+    "/media/outputs",
+    StaticFiles(directory=settings.outputs_dir),
+    name="media_outputs",
+)
+app.mount(
+    "/media/previews",
+    StaticFiles(directory=settings.previews_dir),
+    name="media_previews",
+)
+app.mount(
+    "/media/thumbnails",
+    StaticFiles(directory=settings.thumbnails_dir),
+    name="media_thumbnails",
+)

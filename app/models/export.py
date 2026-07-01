@@ -21,8 +21,11 @@ class Export(Base, TimestampMixin):
     mode: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     output_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    thumbnail_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preview_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     ffmpeg_args_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    asset_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     job_id: Mapped[int | None] = mapped_column(
         ForeignKey("jobs.id"),
         nullable=True,

@@ -2,9 +2,38 @@
 
 Windows と NVIDIA GPU を前提にした、動画シーン検出アプリです。
 
-FastAPI、SQLite、SQLAlchemy、Alembic、PyTorch CUDA、OpenCLIP、OpenCV、ffmpeg / ffprobe を使います。動画本体、特徴量、モデル、出力、ログは `data/` 配下に保存します。SQLiteには大きなバイナリを保存せず、メタデータと相対パスだけを保存します。
+FastAPI、SQLite、SQLAlchemy、Alembic、PyTorch CUDA、OpenCLIP、OpenCV、ffmpeg / ffprobe を使います。動画本体、特徴量、モデル、検出結果、出力、ログは `data/` 配下に保存します。SQLiteには大きなバイナリを保存せず、メタデータと storage root からの相対パスだけを保存します。
 
-## 起動方法
+## 現在できること
+
+- 学習動画の登録
+- SHA256による重複動画判定
+- ffmpeg / ffprobe の存在確認
+- OpenCVで読めない動画の状態分離
+- OpenCLIP / PyTorch CUDA による特徴量抽出
+- 特徴量ファイルの保存とキャッシュ用メタデータ管理
+- モデル作成、モデルバージョン生成、有効バージョン管理
+- 検出対象動画のアップロード
+- モデルを使ったフレーム単位の推論
+- timeline JSON保存
+- シーン区間生成
+- ffmpegによるシーン区間の切り出し
+- サムネイルと軽量プレビュー生成
+- ジョブ管理、進捗確認、キャンセル要求
+- Web UIからの一連操作
+
+## 前提環境
+
+- Windows
+- Python 3.12 以上
+- NVIDIA GPU
+- CUDA対応PyTorch
+- ffmpeg / ffprobe
+- OpenCVで読み取り可能な動画
+
+GPUなしのCPU fallbackは優先していません。特徴量抽出、モデル生成、検出ではCUDAが使えない場合に明確なエラーになります。
+
+## セットアップ
 
 初回セットアップ:
 
@@ -20,15 +49,33 @@ run.bat
 
 `setup.bat` は仮想環境を作成し、依存関係をインストールし、`data/` を準備して、Alembic migration を適用します。`run.bat` も起動前に未適用の migration を適用します。
 
-標準URL:
+起動後:
 
 ```text
-http://127.0.0.1:8000
+http://127.0.0.1:8000/
+```
+
+## .env
+
+通常は `.env` なしでも起動できます。設定を変えたい場合は `.env.example` をコピーして `.env` を作成してください。
+
+```bat
+copy .env.example .env
+```
+
+代表的な設定:
+
+```text
+AISD_FFMPEG_PATH=C:\ProgramData\chocolatey\bin\ffmpeg.exe
+AISD_FFPROBE_PATH=C:\ProgramData\chocolatey\bin\ffprobe.exe
+AISD_STORAGE_ROOT=data
+AISD_DEFAULT_FRAME_INTERVAL_SEC=1.0
+AISD_DEFAULT_DETECTION_BATCH_SIZE=64
 ```
 
 ## Python と PyTorch
 
-`setup.bat` は Python 3.12 以上を要求します。CUDA対応PyTorch wheelとの互換性を優先するため、Python 3.12 / 3.13 を想定しています。
+`setup.bat` は Python 3.12 以上を要求します。`py -3.12` 固定ではなく、3.12以上のPythonを探します。
 
 標準では CUDA 対応 PyTorch を次のindexからインストールします。
 
@@ -43,7 +90,7 @@ set AISD_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
 setup.bat
 ```
 
-GPUを使わない診断目的でのみ、PyTorchのインストールをスキップできます。
+GPU診断だけ行いたい場合は、PyTorchのインストールをスキップできます。
 
 ```bat
 set AISD_SKIP_TORCH_INSTALL=1
@@ -66,7 +113,7 @@ python -m app.db.migrate
 python -m app.db.init_db
 ```
 
-リポジトリ層は `commit` / `rollback` しません。トランザクション境界はサービス層または `UnitOfWork` が持ちます。
+`Base.metadata.create_all()` には依存していません。DBスキーマは Alembic migration で管理します。既存DBを破壊しない方針で、追加カラムや追加テーブルは migration で反映します。
 
 ## 動作確認API
 
@@ -88,9 +135,52 @@ ffmpeg / ffprobe:
 http://127.0.0.1:8000/api/v1/system/video-tools
 ```
 
-## 学習動画の登録
+## Web UIでの使い方
 
-PowerShellでは `curl` が `Invoke-WebRequest` の別名になるため、`curl.exe` または `Invoke-RestMethod` を使ってください。
+ブラウザで開きます。
+
+```text
+http://127.0.0.1:8000/
+```
+
+基本の流れ:
+
+1. 学習動画を選ぶ
+2. `positive` または `negative` を選んで登録する
+3. 特徴量を生成する
+4. モデルを作成する
+5. モデルを学習する
+6. 対象動画を選んで検出する
+7. シーン区間を確認する
+8. Exportを実行する
+9. サムネイル、プレビュー、出力動画を確認する
+
+UIはローカル開発用です。長時間動画ではジョブ完了まで時間がかかるため、ジョブ状態を確認しながら待ってください。
+
+## PowerShellの注意
+
+PowerShellでは `curl` が `Invoke-WebRequest` の別名になるため、curl形式で送る場合は `curl.exe` を使ってください。
+
+OK:
+
+```powershell
+curl.exe -F file=@C:\videos\sample.mp4 http://127.0.0.1:8000/api/v1/health
+```
+
+JSONを送る場合は `Invoke-RestMethod` が扱いやすいです。
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/models" `
+  -ContentType "application/json" `
+  -Body '{"name":"sample-model","description":"first model"}'
+```
+
+Markdownのリンク表記 `[http://...](http://...)` はコマンドに貼らないでください。URLはそのまま貼ります。
+
+## APIでの使い方
+
+### 1. 学習動画の登録
 
 ```powershell
 curl.exe -F label_type=positive -F file=@C:\videos\sample.mp4 http://127.0.0.1:8000/api/v1/training/videos
@@ -100,7 +190,7 @@ curl.exe -F label_type=positive -F file=@C:\videos\sample.mp4 http://127.0.0.1:8
 
 同じ動画を再登録した場合は、新規保存せず、既存動画のメタデータを `duplicated: true` 付きで返します。重複判定にはSHA256を使います。
 
-## 特徴量抽出
+### 2. 特徴量抽出
 
 登録済み学習動画からOpenCLIP特徴量を生成します。特徴量ファイルは `data/features/` 配下に保存され、DBにはメタデータのみ保存されます。
 
@@ -117,7 +207,7 @@ Invoke-RestMethod -Method Post `
 curl.exe "http://127.0.0.1:8000/api/v1/jobs/1"
 ```
 
-## モデル作成
+### 3. モデル作成
 
 論理モデルを作成します。
 
@@ -128,7 +218,7 @@ Invoke-RestMethod -Method Post `
   -Body '{"name":"sample-model","description":"first model"}'
 ```
 
-## モデル学習
+### 4. モデル学習
 
 完了済みの学習用特徴量からモデルバージョンを作成します。モデル成果物は `data/models/` 配下に保存され、DBには相対パス、しきい値、評価指標、有効バージョンを指す値などのメタデータだけを保存します。
 
@@ -152,7 +242,7 @@ Invoke-RestMethod -Method Post `
 
 モデルバージョンは作成後に変更しません。追加学習や再学習では新しい `v2`、`v3` を作成します。
 
-## モデル確認
+確認:
 
 ```powershell
 curl.exe "http://127.0.0.1:8000/api/v1/models/1"
@@ -167,7 +257,7 @@ feature_set.json
 metadata.json
 ```
 
-## 検出
+### 5. 検出
 
 対象動画をアップロードし、有効なモデルバージョンでフレーム単位の推論を実行します。timelineは `data/outputs/detections/` 配下にJSONとして保存されます。
 
@@ -209,11 +299,13 @@ AISD_DEFAULT_MIN_SEGMENT_DURATION_SEC
 AISD_DEFAULT_MAX_SEGMENT_DURATION_SEC
 ```
 
-## 動画出力・プレビュー
+### 6. 動画出力・プレビュー
 
 検出済みシーン区間をffmpegで切り出します。既定は高速な `copy` modeです。正確な境界が必要な場合は `reencode` modeを使います。
 
 Exportジョブは、切り出し動画に加えて確認用のサムネイルと軽量プレビューも生成します。
+
+保存先:
 
 ```text
 data\outputs\exports\...
@@ -256,24 +348,7 @@ thumbnail_path / thumbnail_url
 preview_path / preview_url
 ```
 
-ローカルUIでも確認できます。
-
-```text
-http://127.0.0.1:8000/
-```
-
-UIでは学習動画登録、特徴量生成、モデル作成、モデル学習、検出、シーン区間表示、Export、サムネイル/プレビュー確認まで実行できます。
-
-## ロールバック
-
-ロールバックはファイルをコピーせず、有効なモデルバージョンを指す値だけを変更します。
-
-```powershell
-Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/models/1/rollback" `
-  -ContentType "application/json" `
-  -Body '{"version_id":1}'
-```
+`copy` modeは高速ですが、キーフレーム都合で開始・終了位置が少しズレる場合があります。境界精度を優先する場合は `reencode` modeを使ってください。
 
 ## ジョブ確認とキャンセル
 
@@ -291,29 +366,58 @@ curl.exe -X POST "http://127.0.0.1:8000/api/v1/jobs/1/cancel"
 
 キャンセルは即時停止ではなく、処理の安全な境界で反映されます。
 
-## 現在の実装範囲
+## モデルロールバック
 
-- 学習動画アップロード
-- SHA256重複判定
-- ffmpeg / ffprobe存在確認
-- OpenCV unreadable動画の状態分離
-- OpenCLIP / PyTorch CUDAによる特徴量抽出
-- 特徴量ストア初期実装
-- 特徴量キャッシュ初期実装
-- ジョブ管理、進捗、キャンセル入口
-- 論理モデルとモデルバージョン管理
-- 中心ベクトルベースの初期モデル生成
-- 有効バージョンのロールバック
-- 検出対象動画の登録
-- モデルを使ったフレーム推論
-- timeline JSON保存
-- シーン区間生成
-- 検出シーン区間API
-- ffmpegによるシーン区間出力
-- Export Job
+ロールバックはファイルをコピーせず、有効なモデルバージョンを指す値だけを変更します。
 
-## 未実装または今後の対象
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/models/1/rollback" `
+  -ContentType "application/json" `
+  -Body '{"version_id":1}'
+```
 
-- プレビュー生成
-- フィードバックと継続学習
-- Web UIからの一連操作
+## 保存先
+
+主な保存先:
+
+```text
+data\uploads\                 アップロード動画
+data\features\                OpenCLIP特徴量
+data\models\                  モデル成果物
+data\outputs\detections\      timeline JSON
+data\outputs\exports\         切り出し動画
+data\thumbnails\              サムネイル
+data\previews\                軽量プレビュー
+data\logs\                    ログ
+data\app.db                   SQLite DB
+```
+
+DBには巨大バイナリを保存しません。動画、特徴量、モデル、出力ファイルはファイルシステムに保存し、DBにはメタデータと相対パスだけを保存します。
+
+## APIエラー形式
+
+APIエラーは統一形式で返します。stack traceはレスポンスに返しません。
+
+```json
+{
+  "data": null,
+  "error": {
+    "error_code": "REQUEST_VALIDATION_ERROR",
+    "message": "Request validation failed.",
+    "detail": {},
+    "recoverable": true,
+    "suggested_action": "Check the request body, path, and query parameters.",
+    "request_id": "..."
+  },
+  "request_id": "..."
+}
+```
+
+## 現時点の制限
+
+- 検出しきい値やシーン区間生成パラメータの細かいチューニングUIはまだ最小限です。
+- 個別Exportの再試行API、削除API、古い成果物のクリーンアップは未実装です。
+- プレビューとサムネイルはExportジョブ成功時に生成されます。既存Exportに対する後追い生成APIは未実装です。
+- Web UIはローカル開発用で、認証や複数ユーザー運用は対象外です。
+- CPU fallbackは優先していません。

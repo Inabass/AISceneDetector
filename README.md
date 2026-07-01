@@ -167,6 +167,32 @@ feature_set.json
 metadata.json
 ```
 
+## 検出
+
+対象動画をアップロードし、有効なモデルバージョンでフレーム単位の推論を実行します。timelineは `data/outputs/detections/` 配下にJSONとして保存されます。
+
+```powershell
+curl.exe -F model_id=1 -F frame_interval_sec=1.0 -F batch_size=16 -F file=@C:\videos\target.mp4 http://127.0.0.1:8000/api/v1/detections
+```
+
+返ってきた `data.id` がジョブIDです。
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/v1/jobs/3"
+```
+
+検出結果:
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/v1/detections/1"
+```
+
+timeline:
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/v1/detections/1/timeline"
+```
+
 ## ロールバック
 
 ロールバックはファイルをコピーせず、有効なモデルバージョンを指す値だけを変更します。
@@ -207,11 +233,12 @@ curl.exe -X POST "http://127.0.0.1:8000/api/v1/jobs/1/cancel"
 - 論理モデルとモデルバージョン管理
 - 中心ベクトルベースの初期モデル生成
 - 有効バージョンのロールバック
+- 検出対象動画の登録
+- モデルを使ったフレーム推論
+- timeline JSON保存
 
 ## 未実装または今後の対象
 
-- 検出対象動画の登録
-- モデルを使ったフレーム推論
 - シーン区間生成
 - プレビュー生成
 - 動画出力ジョブ

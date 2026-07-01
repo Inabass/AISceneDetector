@@ -443,10 +443,10 @@ class ModelService:
             return self._feedback_feature_item(feedback, manifest, cache_key)
 
         video_path = self.storage.resolve_storage_path(detection.source_video_path)
-        timestamp = segment.representative_timestamp_sec
-        frame = self._read_feedback_frame(video_path, timestamp)
+        timestamps = self._feedback_sample_timestamps(segment)
+        frames = self._read_feedback_frames(video_path, timestamps)
         try:
-            vectors = extractor.encode_frames([frame]).vectors
+            vectors = extractor.encode_frames(frames).vectors
         except Exception as exc:
             if is_cuda_oom(exc):
                 extractor.clear_memory_after_oom()
@@ -466,7 +466,12 @@ class ModelService:
             "dtype": str(vectors.dtype),
             "shape": list(vectors.shape),
             "frame_count": int(vectors.shape[0]),
-            "timestamp_sec": timestamp,
+            "sampling": {
+                "strategy": "segment_even_sampling",
+                "timestamps_sec": timestamps,
+                "max_frames_per_segment": self.settings.feedback_max_frames_per_segment,
+                "min_frame_interval_sec": self.settings.feedback_min_frame_interval_sec,
+            },
             "chunks": [
                 {
                     "index": 0,
@@ -502,6 +507,11 @@ class ModelService:
             "label": feedback.label,
             "start_sec": feedback.start_sec,
             "end_sec": feedback.end_sec,
+            "sampling": {
+                "strategy": "segment_even_sampling",
+                "max_frames_per_segment": self.settings.feedback_max_frames_per_segment,
+                "min_frame_interval_sec": self.settings.feedback_min_frame_interval_sec,
+            },
             "extractor": extractor_metadata,
         }
         serialized = json.dumps(payload, sort_keys=True, ensure_ascii=True)
@@ -552,17 +562,39 @@ class ModelService:
             sha256=str(json.loads(feedback.metadata_json).get("source_sha256", "")),
         )
 
-    def _read_feedback_frame(self, video_path: Path, timestamp_sec: float) -> object:
+    def _feedback_sample_timestamps(self, segment: Any) -> list[float]:
+        start = float(segment.padded_start_sec)
+        end = float(segment.padded_end_sec)
+        if end <= start:
+            return [float(segment.representative_timestamp_sec)]
+        duration = end - start
+        max_frames = max(1, int(self.settings.feedback_max_frames_per_segment))
+        min_interval = max(0.01, float(self.settings.feedback_min_frame_interval_sec))
+        count = min(max_frames, max(1, int(duration / min_interval) + 1))
+        if count <= 1:
+            return [float(segment.representative_timestamp_sec)]
+        step = duration / (count + 1)
+        timestamps = [start + (step * (index + 1)) for index in range(count)]
+        representative = float(segment.representative_timestamp_sec)
+        if start <= representative <= end:
+            middle = len(timestamps) // 2
+            timestamps[middle] = representative
+        return [round(max(0.0, timestamp), 6) for timestamp in timestamps]
+
+    def _read_feedback_frames(self, video_path: Path, timestamps_sec: list[float]) -> list[object]:
+        frames: list[object] = []
         with OpenCVVideoReader(video_path) as reader:
-            reader.seek(timestamp_sec)
-            ok, frame = reader.capture.read()
-            if not ok:
-                raise ValidationAppError(
-                    message="Could not read feedback frame from source video.",
-                    detail={"path": str(video_path), "timestamp_sec": timestamp_sec},
-                    suggested_action="Check the source video or regenerate detection.",
-                )
-            return reader._cv2.cvtColor(frame, reader._cv2.COLOR_BGR2RGB)
+            for timestamp_sec in timestamps_sec:
+                reader.seek(timestamp_sec)
+                ok, frame = reader.capture.read()
+                if not ok:
+                    raise ValidationAppError(
+                        message="Could not read feedback frame from source video.",
+                        detail={"path": str(video_path), "timestamp_sec": timestamp_sec},
+                        suggested_action="Check the source video or regenerate detection.",
+                    )
+                frames.append(reader._cv2.cvtColor(frame, reader._cv2.COLOR_BGR2RGB))
+        return frames
 
     def _validate_extractor_compatibility(
         self,

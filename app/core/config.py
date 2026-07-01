@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     default_padding_sec: float = 0.5
     default_min_segment_duration_sec: float = 0.5
     default_max_segment_duration_sec: float = 30.0
+    feedback_max_frames_per_segment: int = 5
+    feedback_min_frame_interval_sec: float = 0.5
     openclip_model_name: str = "ViT-B-32"
     openclip_pretrained: str = "laion2b_s34b_b79k"
     openclip_feature_dtype: str = "float16"

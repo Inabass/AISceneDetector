@@ -224,6 +224,16 @@
       </section>
 
       <section>
+        <h2>設定</h2>
+        <div class="actions">
+          <button class="secondary" id="loadSettings">設定を読み込み</button>
+          <button class="secondary" id="saveSettings">設定を保存</button>
+        </div>
+        <div class="result" id="settingsResult">検出、シーン区間生成、feedback再学習の既定値を変更できます。</div>
+        <div class="grid" id="settingsGrid"></div>
+      </section>
+
+      <section>
         <h2>2. モデル</h2>
         <div class="grid">
           <label>モデル名
@@ -527,6 +537,57 @@
           await cleanupStorage(false);
         } catch (error) {
           print("storageResult", error.message);
+        }
+      });
+
+      async function loadSettings() {
+        const settings = await api("/api/v1/settings");
+        $("settingsGrid").innerHTML = settings.map((item) => `
+          <label>${escapeHtml(item.key)}
+            <input
+              data-setting-key="${escapeHtml(item.key)}"
+              type="number"
+              step="${item.type === "int" ? "1" : "0.01"}"
+              min="${item.min}"
+              max="${item.max}"
+              value="${item.value}"
+            >
+            <span class="meta">
+              ${escapeHtml(item.description)}<br>
+              default=${item.default_value} / source=${escapeHtml(item.source)}
+            </span>
+          </label>
+        `).join("");
+        print("settingsResult", "設定を読み込みました。");
+      }
+
+      async function saveSettings() {
+        const values = {};
+        $("settingsGrid").querySelectorAll("[data-setting-key]").forEach((input) => {
+          values[input.dataset.settingKey] = Number(input.value);
+        });
+        const settings = await api("/api/v1/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ values }),
+        });
+        print("settingsResult", settings);
+        await loadSettings();
+      }
+
+      $("loadSettings").addEventListener("click", async () => {
+        try {
+          await loadSettings();
+        } catch (error) {
+          print("settingsResult", error.message);
+        }
+      });
+
+      $("saveSettings").addEventListener("click", async () => {
+        try {
+          await saveSettings();
+        } catch (error) {
+          print("settingsResult", error.message);
         }
       });
 
@@ -837,6 +898,7 @@
       refreshSystemStatus();
       loadJobs().catch(() => {});
       loadStorage().catch(() => {});
+      loadSettings().catch(() => {});
       loadDetections().catch(() => {});
       loadExports().catch(() => {});
       loadFeedback().catch(() => {});

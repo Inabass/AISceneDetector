@@ -25,6 +25,7 @@ from app.repositories.feature_repository import FeatureRepository
 from app.repositories.model_repository import ModelRepository
 from app.services.gpu_service import GpuService
 from app.services.job_service import JobService
+from app.services.settings_service import SettingsService
 from app.services.storage_service import StorageService
 
 
@@ -52,6 +53,7 @@ class ModelService:
         self.feedback_repository = FeedbackRepository(db)
         self.detection_repository = DetectionRepository(db)
         self.job_service = JobService(db)
+        self.settings_service = SettingsService(db, settings)
 
     def create_model(self, name: str, description: str | None = None) -> AiModel:
         model = AiModel(name=name.strip(), description=description)
@@ -469,8 +471,8 @@ class ModelService:
             "sampling": {
                 "strategy": "segment_even_sampling",
                 "timestamps_sec": timestamps,
-                "max_frames_per_segment": self.settings.feedback_max_frames_per_segment,
-                "min_frame_interval_sec": self.settings.feedback_min_frame_interval_sec,
+                "max_frames_per_segment": self._feedback_max_frames_per_segment(),
+                "min_frame_interval_sec": self._feedback_min_frame_interval_sec(),
             },
             "chunks": [
                 {
@@ -509,8 +511,8 @@ class ModelService:
             "end_sec": feedback.end_sec,
             "sampling": {
                 "strategy": "segment_even_sampling",
-                "max_frames_per_segment": self.settings.feedback_max_frames_per_segment,
-                "min_frame_interval_sec": self.settings.feedback_min_frame_interval_sec,
+                "max_frames_per_segment": self._feedback_max_frames_per_segment(),
+                "min_frame_interval_sec": self._feedback_min_frame_interval_sec(),
             },
             "extractor": extractor_metadata,
         }
@@ -568,8 +570,8 @@ class ModelService:
         if end <= start:
             return [float(segment.representative_timestamp_sec)]
         duration = end - start
-        max_frames = max(1, int(self.settings.feedback_max_frames_per_segment))
-        min_interval = max(0.01, float(self.settings.feedback_min_frame_interval_sec))
+        max_frames = max(1, self._feedback_max_frames_per_segment())
+        min_interval = max(0.01, self._feedback_min_frame_interval_sec())
         count = min(max_frames, max(1, int(duration / min_interval) + 1))
         if count <= 1:
             return [float(segment.representative_timestamp_sec)]
@@ -580,6 +582,22 @@ class ModelService:
             middle = len(timestamps) // 2
             timestamps[middle] = representative
         return [round(max(0.0, timestamp), 6) for timestamp in timestamps]
+
+    def _feedback_max_frames_per_segment(self) -> int:
+        return int(
+            self.settings_service.get_effective(
+                "feedback_max_frames_per_segment",
+                self.settings.feedback_max_frames_per_segment,
+            )
+        )
+
+    def _feedback_min_frame_interval_sec(self) -> float:
+        return float(
+            self.settings_service.get_effective(
+                "feedback_min_frame_interval_sec",
+                self.settings.feedback_min_frame_interval_sec,
+            )
+        )
 
     def _read_feedback_frames(self, video_path: Path, timestamps_sec: list[float]) -> list[object]:
         frames: list[object] = []

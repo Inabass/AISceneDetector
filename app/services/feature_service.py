@@ -18,6 +18,7 @@ from app.repositories.feature_repository import FeatureRepository
 from app.repositories.training_video_repository import TrainingVideoRepository
 from app.services.gpu_service import GpuService
 from app.services.job_service import JobService
+from app.services.settings_service import SettingsService
 from app.services.storage_service import StorageService
 
 
@@ -29,6 +30,7 @@ class FeatureService:
         self.video_repository = TrainingVideoRepository(db)
         self.feature_repository = FeatureRepository(db)
         self.job_service = JobService(db)
+        self.settings_service = SettingsService(db, settings)
 
     def create_training_feature_job(
         self,
@@ -39,8 +41,18 @@ class FeatureService:
         video = self._require_extractable_video(video_id)
         GpuService(self.settings).require_cuda_available()
 
-        interval = frame_interval_sec or self.settings.default_frame_interval_sec
-        batch = batch_size or self.settings.default_training_batch_size
+        interval = frame_interval_sec or float(
+            self.settings_service.get_effective(
+                "default_frame_interval_sec",
+                self.settings.default_frame_interval_sec,
+            )
+        )
+        batch = batch_size or int(
+            self.settings_service.get_effective(
+                "default_training_batch_size",
+                self.settings.default_training_batch_size,
+            )
+        )
         cache_key = self.cache_key(video, interval)
         cached = self.feature_repository.get_succeeded_by_cache_key(cache_key)
         if cached is not None and not self._is_cache_valid(cached):

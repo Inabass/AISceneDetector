@@ -22,6 +22,7 @@ from app.repositories.detection_repository import DetectionRepository
 from app.repositories.model_repository import ModelRepository
 from app.services.gpu_service import GpuService
 from app.services.job_service import JobService
+from app.services.settings_service import SettingsService
 from app.services.storage_service import StorageService
 from app.services.video_service import _looks_like_known_video_container, _looks_like_text
 
@@ -35,6 +36,7 @@ class DetectionService:
         self.model_repository = ModelRepository(db)
         self.job_service = JobService(db)
         self.probe = FFprobeVideoProbe(settings)
+        self.settings_service = SettingsService(db, settings)
 
     async def create_detection_job(
         self,
@@ -53,13 +55,23 @@ class DetectionService:
         model_version = self._resolve_model_version(model_id, model_version_id)
         GpuService(self.settings).require_cuda_available()
 
-        interval = frame_interval_sec or self.settings.default_frame_interval_sec
+        interval = frame_interval_sec or float(
+            self.settings_service.get_effective(
+                "default_frame_interval_sec",
+                self.settings.default_frame_interval_sec,
+            )
+        )
         if interval <= 0:
             raise ValidationAppError(
                 message="frame_interval_sec must be positive.",
                 detail={"frame_interval_sec": interval},
             )
-        batch = batch_size or self.settings.default_detection_batch_size
+        batch = batch_size or int(
+            self.settings_service.get_effective(
+                "default_detection_batch_size",
+                self.settings.default_detection_batch_size,
+            )
+        )
         if batch <= 0:
             raise ValidationAppError(
                 message="batch_size must be positive.",
@@ -458,11 +470,36 @@ class DetectionService:
 
     def _segment_settings(self) -> dict[str, float]:
         return {
-            "smoothing_window_sec": self.settings.default_smoothing_window_sec,
-            "merge_gap_sec": self.settings.default_merge_gap_sec,
-            "padding_sec": self.settings.default_padding_sec,
-            "min_segment_duration_sec": self.settings.default_min_segment_duration_sec,
-            "max_segment_duration_sec": self.settings.default_max_segment_duration_sec,
+            "smoothing_window_sec": float(
+                self.settings_service.get_effective(
+                    "default_smoothing_window_sec",
+                    self.settings.default_smoothing_window_sec,
+                )
+            ),
+            "merge_gap_sec": float(
+                self.settings_service.get_effective(
+                    "default_merge_gap_sec",
+                    self.settings.default_merge_gap_sec,
+                )
+            ),
+            "padding_sec": float(
+                self.settings_service.get_effective(
+                    "default_padding_sec",
+                    self.settings.default_padding_sec,
+                )
+            ),
+            "min_segment_duration_sec": float(
+                self.settings_service.get_effective(
+                    "default_min_segment_duration_sec",
+                    self.settings.default_min_segment_duration_sec,
+                )
+            ),
+            "max_segment_duration_sec": float(
+                self.settings_service.get_effective(
+                    "default_max_segment_duration_sec",
+                    self.settings.default_max_segment_duration_sec,
+                )
+            ),
         }
 
     def _build_segment_candidates(

@@ -422,7 +422,14 @@ class DetectionService:
             start = max(0, index - radius)
             end = min(len(points), index + radius + 1)
             value = sum(confidences[start:end]) / max(1, end - start)
-            smoothed.append({**point, "smoothed_confidence": value})
+            confidence = float(point.get("confidence") or 0.0)
+            smoothed.append(
+                {
+                    **point,
+                    "smoothed_confidence": value,
+                    "detection_score": max(confidence, value),
+                }
+            )
         return smoothed
 
     def _positive_ranges(
@@ -436,7 +443,7 @@ class DetectionService:
         for point in points:
             margin_score = point.get("margin_score")
             margin_ok = margin_score is None or float(margin_score) >= margin
-            is_positive = float(point["smoothed_confidence"]) >= threshold and margin_ok
+            is_positive = float(point["detection_score"]) >= threshold and margin_ok
             if is_positive:
                 current.append(point)
             elif current:
@@ -457,7 +464,7 @@ class DetectionService:
         end_sec = float(points[-1]["timestamp_sec"]) + frame_interval
         if video_duration:
             end_sec = min(end_sec, video_duration)
-        scores = [float(point["smoothed_confidence"]) for point in points]
+        scores = [float(point["detection_score"]) for point in points]
         max_index = max(range(len(points)), key=lambda index: scores[index])
         average_score = sum(scores) / len(scores)
         max_score = scores[max_index]
@@ -511,7 +518,7 @@ class DetectionService:
         video_duration: float | None,
     ) -> "_SegmentCandidate":
         points = left.points + right.points
-        scores = [float(point["smoothed_confidence"]) for point in points]
+        scores = [float(point["detection_score"]) for point in points]
         max_index = max(range(len(points)), key=lambda index: scores[index])
         average_score = sum(scores) / len(scores)
         padded_end = right.padded_end_sec

@@ -209,6 +209,35 @@ AISD_DEFAULT_MIN_SEGMENT_DURATION_SEC
 AISD_DEFAULT_MAX_SEGMENT_DURATION_SEC
 ```
 
+## 動画出力
+
+検出済みシーン区間をffmpegで切り出します。既定は高速な `copy` modeです。正確な境界が必要な場合は `reencode` modeを使います。
+
+全シーン区間を出力:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/exports" `
+  -ContentType "application/json" `
+  -Body '{"detection_id":1,"mode":"copy"}'
+```
+
+特定のシーン区間だけ出力:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/exports" `
+  -ContentType "application/json" `
+  -Body '{"detection_id":1,"segment_ids":[1],"mode":"reencode"}'
+```
+
+ジョブ成功後、出力結果を確認します。
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/v1/exports"
+dir data\outputs\exports /s
+```
+
 ## ロールバック
 
 ロールバックはファイルをコピーせず、有効なモデルバージョンを指す値だけを変更します。
@@ -254,10 +283,11 @@ curl.exe -X POST "http://127.0.0.1:8000/api/v1/jobs/1/cancel"
 - timeline JSON保存
 - シーン区間生成
 - 検出シーン区間API
+- ffmpegによるシーン区間出力
+- Export Job
 
 ## 未実装または今後の対象
 
 - プレビュー生成
-- 動画出力ジョブ
 - フィードバックと継続学習
 - Web UIからの一連操作

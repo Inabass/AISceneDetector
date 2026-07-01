@@ -38,6 +38,9 @@ class DetectionRepository(Repository[DetectionResult]):
             ).scalars()
         )
 
+    def get_segment(self, segment_id: int) -> DetectionSegment | None:
+        return self.db.get(DetectionSegment, segment_id)
+
     def delete_segments(self, detection_id: int) -> None:
         for segment in self.list_segments(detection_id):
             self.db.delete(segment)

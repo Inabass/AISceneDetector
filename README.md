@@ -193,6 +193,22 @@ timeline:
 curl.exe "http://127.0.0.1:8000/api/v1/detections/1/timeline"
 ```
 
+検出されたシーン区間:
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/v1/detections/1/segments"
+```
+
+シーン区間生成では、平滑化、しきい値判定、短いgapの結合、padding、最小/最大durationを適用します。既定値は環境変数で上書きできます。
+
+```text
+AISD_DEFAULT_SMOOTHING_WINDOW_SEC
+AISD_DEFAULT_MERGE_GAP_SEC
+AISD_DEFAULT_PADDING_SEC
+AISD_DEFAULT_MIN_SEGMENT_DURATION_SEC
+AISD_DEFAULT_MAX_SEGMENT_DURATION_SEC
+```
+
 ## ロールバック
 
 ロールバックはファイルをコピーせず、有効なモデルバージョンを指す値だけを変更します。
@@ -236,10 +252,11 @@ curl.exe -X POST "http://127.0.0.1:8000/api/v1/jobs/1/cancel"
 - 検出対象動画の登録
 - モデルを使ったフレーム推論
 - timeline JSON保存
+- シーン区間生成
+- 検出シーン区間API
 
 ## 未実装または今後の対象
 
-- シーン区間生成
 - プレビュー生成
 - 動画出力ジョブ
 - フィードバックと継続学習

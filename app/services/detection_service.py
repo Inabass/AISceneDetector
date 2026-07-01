@@ -1,5 +1,6 @@
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -15,7 +16,7 @@ from app.core.video.probe import FFprobeVideoProbe
 from app.core.video.reader import OpenCVVideoReader
 from app.db.session import SessionLocal
 from app.db.unit_of_work import UnitOfWork
-from app.models.detection import DetectionResult
+from app.models.detection import DetectionResult, DetectionSegment
 from app.models.model import ModelVersion
 from app.repositories.detection_repository import DetectionRepository
 from app.repositories.model_repository import ModelRepository
@@ -147,7 +148,12 @@ class DetectionService:
                 suggested_action="Wait for the detection job to finish.",
             )
         timeline_path = self.storage.resolve_storage_path(detection.timeline_path)
-        return json.loads(timeline_path.read_text(encoding="utf-8"))
+        timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
+        timeline["segments"] = [
+            self._segment_to_payload(segment)
+            for segment in self.repository.list_segments(detection.id)
+        ]
+        return timeline
 
     def run_detection_job(self, job_id: int) -> None:
         job_service = JobService(self.db)
@@ -266,6 +272,10 @@ class DetectionService:
                 detection.status = "succeeded"
                 detection.timeline_path = self.storage.relative_path(timeline_path)
                 detection.summary_json = json.dumps(summary, ensure_ascii=True)
+            segments = self.generate_segments(detection.id)
+            summary = {**summary, "segment_count": len(segments)}
+            with UnitOfWork(self.db):
+                detection.summary_json = json.dumps(summary, ensure_ascii=True)
             job_service.succeed(
                 job_id,
                 {
@@ -273,6 +283,7 @@ class DetectionService:
                     "timeline_path": detection.timeline_path,
                     "processed_frames": stats.processed_frames,
                     "positive_frames": stats.positive_frames,
+                    "segment_count": len(segments),
                 },
             )
         except Exception as exc:
@@ -292,6 +303,295 @@ class DetectionService:
                 pass
             job_service.fail(job_id, code, message)
             job_service.log(job_id, "error", "detection", message)
+
+    def list_segments(self, detection_id: int) -> list[DetectionSegment]:
+        self.get_detection(detection_id)
+        return self.repository.list_segments(detection_id)
+
+    def generate_segments(self, detection_id: int) -> list[DetectionSegment]:
+        detection = self.get_detection(detection_id)
+        if not detection.timeline_path:
+            return []
+        timeline = self.read_timeline(detection_id)
+        points = timeline.get("points") or []
+        if not points:
+            with UnitOfWork(self.db):
+                self.repository.delete_segments(detection.id)
+            return []
+
+        frame_interval = float(
+            timeline.get("frame_interval_sec")
+            or self.settings.default_frame_interval_sec
+        )
+        threshold = float(timeline.get("threshold"))
+        margin = float(timeline.get("margin") or 0.0)
+        settings = self._segment_settings()
+        candidates = self._build_segment_candidates(
+            points=points,
+            frame_interval=frame_interval,
+            threshold=threshold,
+            margin=margin,
+            video_duration=detection.duration,
+            settings=settings,
+        )
+        with UnitOfWork(self.db):
+            self.repository.delete_segments(detection.id)
+            saved = []
+            for index, candidate in enumerate(candidates, start=1):
+                segment = DetectionSegment(
+                    detection_result_id=detection.id,
+                    segment_index=index,
+                    start_sec=candidate.start_sec,
+                    end_sec=candidate.end_sec,
+                    padded_start_sec=candidate.padded_start_sec,
+                    padded_end_sec=candidate.padded_end_sec,
+                    duration_sec=candidate.duration_sec,
+                    score=candidate.score,
+                    max_score=candidate.max_score,
+                    average_score=candidate.average_score,
+                    representative_timestamp_sec=candidate.representative_timestamp_sec,
+                    start_frame_index=candidate.start_frame_index,
+                    end_frame_index=candidate.end_frame_index,
+                    status="detected",
+                    metadata_json=json.dumps(candidate.metadata, ensure_ascii=True),
+                )
+                self.repository.add_segment(segment)
+                saved.append(segment)
+        return self.repository.list_segments(detection.id)
+
+    def _segment_settings(self) -> dict[str, float]:
+        return {
+            "smoothing_window_sec": self.settings.default_smoothing_window_sec,
+            "merge_gap_sec": self.settings.default_merge_gap_sec,
+            "padding_sec": self.settings.default_padding_sec,
+            "min_segment_duration_sec": self.settings.default_min_segment_duration_sec,
+            "max_segment_duration_sec": self.settings.default_max_segment_duration_sec,
+        }
+
+    def _build_segment_candidates(
+        self,
+        points: list[dict[str, Any]],
+        frame_interval: float,
+        threshold: float,
+        margin: float,
+        video_duration: float | None,
+        settings: dict[str, float],
+    ) -> list["_SegmentCandidate"]:
+        smoothed = self._smooth_points(
+            points,
+            frame_interval,
+            settings["smoothing_window_sec"],
+        )
+        ranges = self._positive_ranges(smoothed, threshold, margin)
+        candidates = [
+            self._candidate_from_points(
+                range_points,
+                frame_interval,
+                video_duration,
+                settings,
+            )
+            for range_points in ranges
+        ]
+        candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.duration_sec >= settings["min_segment_duration_sec"]
+        ]
+        candidates = self._merge_candidates(
+            candidates,
+            settings["merge_gap_sec"],
+            video_duration,
+        )
+        return self._split_long_candidates(
+            candidates,
+            settings["max_segment_duration_sec"],
+            video_duration,
+        )
+
+    def _smooth_points(
+        self,
+        points: list[dict[str, Any]],
+        frame_interval: float,
+        smoothing_window_sec: float,
+    ) -> list[dict[str, Any]]:
+        window = max(1, int(round(smoothing_window_sec / max(frame_interval, 1e-6))))
+        radius = max(0, window // 2)
+        confidences = [float(point.get("confidence") or 0.0) for point in points]
+        smoothed: list[dict[str, Any]] = []
+        for index, point in enumerate(points):
+            start = max(0, index - radius)
+            end = min(len(points), index + radius + 1)
+            value = sum(confidences[start:end]) / max(1, end - start)
+            smoothed.append({**point, "smoothed_confidence": value})
+        return smoothed
+
+    def _positive_ranges(
+        self,
+        points: list[dict[str, Any]],
+        threshold: float,
+        margin: float,
+    ) -> list[list[dict[str, Any]]]:
+        ranges: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
+        for point in points:
+            margin_score = point.get("margin_score")
+            margin_ok = margin_score is None or float(margin_score) >= margin
+            is_positive = float(point["smoothed_confidence"]) >= threshold and margin_ok
+            if is_positive:
+                current.append(point)
+            elif current:
+                ranges.append(current)
+                current = []
+        if current:
+            ranges.append(current)
+        return ranges
+
+    def _candidate_from_points(
+        self,
+        points: list[dict[str, Any]],
+        frame_interval: float,
+        video_duration: float | None,
+        settings: dict[str, float],
+    ) -> "_SegmentCandidate":
+        start_sec = float(points[0]["timestamp_sec"])
+        end_sec = float(points[-1]["timestamp_sec"]) + frame_interval
+        if video_duration:
+            end_sec = min(end_sec, video_duration)
+        scores = [float(point["smoothed_confidence"]) for point in points]
+        max_index = max(range(len(points)), key=lambda index: scores[index])
+        average_score = sum(scores) / len(scores)
+        max_score = scores[max_index]
+        padded_start = max(0.0, start_sec - settings["padding_sec"])
+        padded_end = end_sec + settings["padding_sec"]
+        if video_duration:
+            padded_end = min(padded_end, video_duration)
+        return _SegmentCandidate(
+            start_sec=start_sec,
+            end_sec=end_sec,
+            padded_start_sec=padded_start,
+            padded_end_sec=max(padded_end, padded_start),
+            duration_sec=max(0.0, padded_end - padded_start),
+            score=average_score,
+            max_score=max_score,
+            average_score=average_score,
+            representative_timestamp_sec=float(points[max_index]["timestamp_sec"]),
+            start_frame_index=_int_or_none(points[0].get("frame_index")),
+            end_frame_index=_int_or_none(points[-1].get("frame_index")),
+            points=points,
+            metadata={
+                "raw_start_sec": start_sec,
+                "raw_end_sec": end_sec,
+                "point_count": len(points),
+                "smoothing_window_sec": settings["smoothing_window_sec"],
+                "padding_sec": settings["padding_sec"],
+            },
+        )
+
+    def _merge_candidates(
+        self,
+        candidates: list["_SegmentCandidate"],
+        merge_gap_sec: float,
+        video_duration: float | None,
+    ) -> list["_SegmentCandidate"]:
+        if not candidates:
+            return []
+        merged = [candidates[0]]
+        for candidate in candidates[1:]:
+            previous = merged[-1]
+            if candidate.start_sec - previous.end_sec <= merge_gap_sec:
+                merged[-1] = self._merge_two_candidates(previous, candidate, video_duration)
+            else:
+                merged.append(candidate)
+        return merged
+
+    def _merge_two_candidates(
+        self,
+        left: "_SegmentCandidate",
+        right: "_SegmentCandidate",
+        video_duration: float | None,
+    ) -> "_SegmentCandidate":
+        points = left.points + right.points
+        scores = [float(point["smoothed_confidence"]) for point in points]
+        max_index = max(range(len(points)), key=lambda index: scores[index])
+        average_score = sum(scores) / len(scores)
+        padded_end = right.padded_end_sec
+        if video_duration:
+            padded_end = min(padded_end, video_duration)
+        return _SegmentCandidate(
+            start_sec=left.start_sec,
+            end_sec=right.end_sec,
+            padded_start_sec=left.padded_start_sec,
+            padded_end_sec=padded_end,
+            duration_sec=max(0.0, padded_end - left.padded_start_sec),
+            score=average_score,
+            max_score=max(scores),
+            average_score=average_score,
+            representative_timestamp_sec=float(points[max_index]["timestamp_sec"]),
+            start_frame_index=left.start_frame_index,
+            end_frame_index=right.end_frame_index,
+            points=points,
+            metadata={**left.metadata, "merged": True, "point_count": len(points)},
+        )
+
+    def _split_long_candidates(
+        self,
+        candidates: list["_SegmentCandidate"],
+        max_duration_sec: float,
+        video_duration: float | None,
+    ) -> list["_SegmentCandidate"]:
+        if max_duration_sec <= 0:
+            return candidates
+        output: list[_SegmentCandidate] = []
+        for candidate in candidates:
+            if candidate.duration_sec <= max_duration_sec:
+                output.append(candidate)
+                continue
+            chunk_start = candidate.padded_start_sec
+            while chunk_start < candidate.padded_end_sec:
+                chunk_end = min(chunk_start + max_duration_sec, candidate.padded_end_sec)
+                output.append(
+                    _SegmentCandidate(
+                        start_sec=max(candidate.start_sec, chunk_start),
+                        end_sec=min(candidate.end_sec, chunk_end),
+                        padded_start_sec=chunk_start,
+                        padded_end_sec=chunk_end,
+                        duration_sec=max(0.0, chunk_end - chunk_start),
+                        score=candidate.score,
+                        max_score=candidate.max_score,
+                        average_score=candidate.average_score,
+                        representative_timestamp_sec=candidate.representative_timestamp_sec,
+                        start_frame_index=candidate.start_frame_index,
+                        end_frame_index=candidate.end_frame_index,
+                        points=candidate.points,
+                        metadata={
+                            **candidate.metadata,
+                            "split_by_max_duration": True,
+                            "max_segment_duration_sec": max_duration_sec,
+                        },
+                    )
+                )
+                chunk_start = chunk_end
+        return output
+
+    def _segment_to_payload(self, segment: DetectionSegment) -> dict[str, object]:
+        return {
+            "id": segment.id,
+            "detection_result_id": segment.detection_result_id,
+            "segment_index": segment.segment_index,
+            "start_sec": segment.start_sec,
+            "end_sec": segment.end_sec,
+            "padded_start_sec": segment.padded_start_sec,
+            "padded_end_sec": segment.padded_end_sec,
+            "duration_sec": segment.duration_sec,
+            "score": segment.score,
+            "max_score": segment.max_score,
+            "average_score": segment.average_score,
+            "representative_timestamp_sec": segment.representative_timestamp_sec,
+            "start_frame_index": segment.start_frame_index,
+            "end_frame_index": segment.end_frame_index,
+            "status": segment.status,
+            "metadata": json.loads(segment.metadata_json),
+        }
 
     def _resolve_model_version(
         self,
@@ -558,6 +858,32 @@ class DetectionService:
                 stats.summary("cancelled"),
                 ensure_ascii=True,
             )
+
+
+@dataclass
+class _SegmentCandidate:
+    start_sec: float
+    end_sec: float
+    padded_start_sec: float
+    padded_end_sec: float
+    duration_sec: float
+    score: float
+    max_score: float
+    average_score: float
+    representative_timestamp_sec: float
+    start_frame_index: int | None
+    end_frame_index: int | None
+    points: list[dict[str, Any]]
+    metadata: dict[str, object]
+
+
+def _int_or_none(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class _DetectionStats:

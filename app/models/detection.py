@@ -31,3 +31,28 @@ class DetectionResult(Base, TimestampMixin):
         nullable=True,
         index=True,
     )
+
+
+class DetectionSegment(Base, TimestampMixin):
+    __tablename__ = "detection_segments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    detection_result_id: Mapped[int] = mapped_column(
+        ForeignKey("detection_results.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    segment_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_sec: Mapped[float] = mapped_column(Float, nullable=False)
+    end_sec: Mapped[float] = mapped_column(Float, nullable=False)
+    padded_start_sec: Mapped[float] = mapped_column(Float, nullable=False)
+    padded_end_sec: Mapped[float] = mapped_column(Float, nullable=False)
+    duration_sec: Mapped[float] = mapped_column(Float, nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    max_score: Mapped[float] = mapped_column(Float, nullable=False)
+    average_score: Mapped[float] = mapped_column(Float, nullable=False)
+    representative_timestamp_sec: Mapped[float] = mapped_column(Float, nullable=False)
+    start_frame_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_frame_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False)

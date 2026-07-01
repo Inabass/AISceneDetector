@@ -23,6 +23,25 @@ class DetectionData(BaseModel):
     job_id: int | None
 
 
+class DetectionSegmentData(BaseModel):
+    id: int
+    detection_result_id: int
+    segment_index: int
+    start_sec: float
+    end_sec: float
+    padded_start_sec: float
+    padded_end_sec: float
+    duration_sec: float
+    score: float
+    max_score: float
+    average_score: float
+    representative_timestamp_sec: float
+    start_frame_index: int | None
+    end_frame_index: int | None
+    status: str
+    metadata: dict[str, object]
+
+
 class DetectionResponse(ApiResponse[DetectionData]):
     pass
 
@@ -36,4 +55,8 @@ class DetectionJobResponse(ApiResponse[JobData]):
 
 
 class DetectionTimelineResponse(ApiResponse[dict[str, object]]):
+    pass
+
+
+class DetectionSegmentListResponse(ApiResponse[list[DetectionSegmentData]]):
     pass

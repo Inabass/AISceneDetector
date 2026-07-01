@@ -13,6 +13,8 @@ from app.schemas.detection import (
     DetectionJobResponse,
     DetectionListResponse,
     DetectionResponse,
+    DetectionSegmentData,
+    DetectionSegmentListResponse,
     DetectionTimelineResponse,
 )
 from app.schemas.job import JobData
@@ -90,6 +92,40 @@ def get_detection_timeline(
     timeline = DetectionService(db, settings).read_timeline(detection_id)
     return DetectionTimelineResponse(
         data=timeline,
+        request_id=getattr(request.state, "request_id", None),
+    )
+
+
+@router.get("/{detection_id}/segments", response_model=DetectionSegmentListResponse)
+def get_detection_segments(
+    detection_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> DetectionSegmentListResponse:
+    segments = DetectionService(db, settings).list_segments(detection_id)
+    return DetectionSegmentListResponse(
+        data=[
+            DetectionSegmentData(
+                id=segment.id,
+                detection_result_id=segment.detection_result_id,
+                segment_index=segment.segment_index,
+                start_sec=segment.start_sec,
+                end_sec=segment.end_sec,
+                padded_start_sec=segment.padded_start_sec,
+                padded_end_sec=segment.padded_end_sec,
+                duration_sec=segment.duration_sec,
+                score=segment.score,
+                max_score=segment.max_score,
+                average_score=segment.average_score,
+                representative_timestamp_sec=segment.representative_timestamp_sec,
+                start_frame_index=segment.start_frame_index,
+                end_frame_index=segment.end_frame_index,
+                status=segment.status,
+                metadata=json.loads(segment.metadata_json),
+            )
+            for segment in segments
+        ],
         request_id=getattr(request.state, "request_id", None),
     )
 

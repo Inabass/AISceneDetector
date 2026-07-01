@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     default_detection_batch_size: int = 64
     auto_batch_reduction: bool = True
     default_frame_interval_sec: float = 1.0
+    default_smoothing_window_sec: float = 3.0
+    default_merge_gap_sec: float = 1.0
+    default_padding_sec: float = 0.5
+    default_min_segment_duration_sec: float = 0.5
+    default_max_segment_duration_sec: float = 30.0
     openclip_model_name: str = "ViT-B-32"
     openclip_pretrained: str = "laion2b_s34b_b79k"
     openclip_feature_dtype: str = "float16"

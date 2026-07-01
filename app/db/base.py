@@ -1,5 +1,5 @@
 from app.models.base import Base
-from app.models.detection import DetectionResult
+from app.models.detection import DetectionResult, DetectionSegment
 from app.models.feature import Feature
 from app.models.job import Job, JobLog
 from app.models.model import AiModel, ModelVersion
@@ -11,6 +11,7 @@ __all__ = [
     "AppSetting",
     "Base",
     "DetectionResult",
+    "DetectionSegment",
     "Feature",
     "Job",
     "JobLog",

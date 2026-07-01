@@ -207,6 +207,7 @@
           <button class="secondary" id="loadModel">モデルを確認</button>
         </div>
         <div class="result" id="modelResult">未実行</div>
+        <div class="list" id="modelVersionsList"></div>
       </section>
 
       <section>
@@ -389,6 +390,7 @@
           await pollJob(data.id, "modelResult");
           const model = await api(`/api/v1/models/${modelId}`);
           print("modelResult", model);
+          renderModelVersions(model);
         } catch (error) {
           print("modelResult", error.message);
         }
@@ -398,10 +400,55 @@
         try {
           const data = await api(`/api/v1/models/${Number($("modelId").value)}`);
           print("modelResult", data);
+          renderModelVersions(data);
         } catch (error) {
           print("modelResult", error.message);
         }
       });
+
+      function renderModelVersions(model) {
+        $("modelVersionsList").innerHTML = model.versions.map((version) => {
+          const isActive = model.active_version_id === version.id;
+          const metrics = version.metrics || {};
+          const thresholds = version.thresholds || {};
+          return `
+            <div class="item">
+              <h3>${escapeHtml(version.version)} ${isActive ? "/ 有効" : ""}</h3>
+              <div class="meta">
+                version_id=${version.id} / status=${escapeHtml(version.status)} / job_id=${version.created_by_job_id ?? "-"}<br>
+                threshold=${Number(thresholds.positive ?? 0).toFixed(4)} / margin=${Number(thresholds.margin ?? 0).toFixed(4)}<br>
+                positive_vectors=${metrics.positive_vector_count ?? 0} /
+                negative_vectors=${metrics.negative_vector_count ?? 0}<br>
+                ${escapeHtml(version.artifact_path)}
+              </div>
+              <div class="actions">
+                <button class="secondary" data-rollback-version="${version.id}" ${isActive || version.status !== "ready" ? "disabled" : ""}>
+                  このバージョンに戻す
+                </button>
+              </div>
+            </div>
+          `;
+        }).join("") || "<p>モデルバージョンはまだありません。</p>";
+        $("modelVersionsList").querySelectorAll("[data-rollback-version]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            await rollbackModel(model.id, Number(button.dataset.rollbackVersion));
+          });
+        });
+      }
+
+      async function rollbackModel(modelId, versionId) {
+        try {
+          const model = await api(`/api/v1/models/${modelId}/rollback`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ version_id: versionId }),
+          });
+          print("modelResult", model);
+          renderModelVersions(model);
+        } catch (error) {
+          print("modelResult", error.message);
+        }
+      }
 
       $("runDetection").addEventListener("click", async () => {
         try {
